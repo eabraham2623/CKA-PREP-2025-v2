@@ -20,7 +20,7 @@ Run from the repo root:
 - Validators define `check <description> <command...>`. Most end with `exit $FAIL` (failure count); Q1 and Q19 exit 0/1. The wrapper maps exit 0=pass, 2=skip, anything else=fail. Avoid returning 2 from a validator: exactly two failing checks would otherwise look like SKIP.
 
 ## Adding randomized variants
-Variants are implemented for Questions 1 and 2 (three presets each) and the shared helper exists. When the user asks for variants of another lab, follow this contract; apply changes per-question, not to every lab at once unless explicitly requested.
+Variants are implemented for Questions 1, 2, and 3 (three presets each) and the shared helper exists. When the user asks for variants of another lab, follow this contract; apply changes per-question, not to every lab at once unless explicitly requested.
 
 - Treat variants as fixed, tested presets, not arbitrary runtime randomness. Randomness only chooses the preset; values inside a preset must be deterministic.
 - Add `Question-N-Topic/variants.bash` containing `VARIANT_COUNT`, `variant_config <n>`, and `variant_question <n>`. `variant_config` is the single source of truth: it sets every variant-specific value used by setup and validation, plus `VARIANT_SUMMARY` containing the task values shown to the learner. `variant_question` prints the complete variant-specific task.
@@ -48,4 +48,5 @@ Variants are implemented for Questions 1 and 2 (three presets each) and the shar
 - Q9: setup downloads `cri-dockerd`; the solution installs the Debian package and systemd unit system-wide, and cleanup removes them.
 - Q1: setup intentionally leaves `claimName: ""` in `~/mariadb-deploy.yaml`; the learner must fill it in. The namespace, PV/PVC/deployment names, and storage size vary by preset; setup prints the exact values and question. Do not "fix" the blank `claimName`.
 - Q2: the Helm repo alias, namespace, chart version, output manifest path, and required extra chart value (server service type or replicas) vary by preset. Variant 1 keeps `/root/argo-helm.yaml`. Setup prints the exact values and question.
+- Q3: variant 1 uses the `default` namespace; setup and cleanup must delete the named Deployment/Service only, never the namespace. The namespace, Deployment/Service, main container name, log file, and log message vary by preset; the `/var/log` mount, images, replicas, and service port stay fixed. Setup intentionally leaves the Deployment without a shared volume.
 - Fixed paths matter: `/root/resources.yaml` and `/root/subject.yaml` (Q6). Q13 creates `network-policies/` under the caller's `$PWD`, so run wrappers from the repo root. Q17 leaves `tls.key`/`tls.crt` in the cwd; remove them.
