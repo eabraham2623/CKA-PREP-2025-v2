@@ -11,6 +11,7 @@ Straightforward CKA practice labs derived from the CKA-PREP playlist. Every ques
 - `SolutionNotes.bash` — a step-by-step solution when you need a hint.
 - `validate.bash` — automatic validation checks to confirm your solution is correct.
 - `cleanup.bash` — clean up and remove resources created during the question.
+- `variants.bash` — variant-enabled questions only: fixed presets and the variant-specific question text.
 
 ---
 
@@ -35,6 +36,22 @@ Straightforward CKA practice labs derived from the CKA-PREP playlist. Every ques
    ```bash
    scripts/cleanup-question.sh 5
    ```
+
+### Randomized lab variants
+
+Some questions have multiple variants. Running setup without a variant number selects one at random and prints the full question for that run, including the exact names and storage values:
+
+```bash
+scripts/run-question.sh 1
+```
+
+To repeat a specific variant, pass its number as the second argument:
+
+```bash
+scripts/run-question.sh 1 2
+```
+
+Validation reads the variant recorded by setup, so run setup before validating. Cleanup clears the recorded variant.
 
 ---
 
@@ -87,7 +104,7 @@ This opens VSCodium in the current directory, allowing you to browse and edit al
 
 | # | Topic | Video |
 |---|-------|-------|
-| 1 | MariaDB — Persistent Volume | https://youtu.be/aXvvc1EB1zg |
+| 1 | MariaDB — Persistent Volume (3 variants) | https://youtu.be/aXvvc1EB1zg |
 | 2 | ArgoCD — Install via Helm (no CRDs) | https://youtu.be/e0YGRSjb8CU |
 | 3 | Sidecar Container | https://youtu.be/3xraEGGQJDY |
 | 4 | Resource Allocation | https://youtu.be/ZqGDdETii8c |

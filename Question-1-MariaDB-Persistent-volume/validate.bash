@@ -2,6 +2,17 @@
 # Validation script for Question 1 - MariaDB Persistent Volume
 set -uo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+# shellcheck source=../scripts/lib/variant.sh
+source "$REPO_ROOT/scripts/lib/variant.sh"
+# shellcheck source=variants.bash
+source "$SCRIPT_DIR/variants.bash"
+
+VARIANT="$(cka_variant_read "$SCRIPT_DIR" "$VARIANT_COUNT")" || exit 1
+variant_config "$VARIANT" || exit 1
+
 PASS=0
 FAIL=0
 TOTAL=0
@@ -19,47 +30,107 @@ check() {
   fi
 }
 
+pvc_access_mode_is_rwo() {
+  [[ "$(kubectl get pvc "$PVC" -n "$NS" -o jsonpath='{.spec.accessModes[0]}')" == "ReadWriteOnce" ]]
+}
+
+pvc_size_is_expected() {
+  [[ "$(kubectl get pvc "$PVC" -n "$NS" -o jsonpath='{.spec.resources.requests.storage}')" == "$SIZE" ]]
+}
+
+pvc_is_bound() {
+  [[ "$(kubectl get pvc "$PVC" -n "$NS" -o jsonpath='{.status.phase}')" == "Bound" ]]
+}
+
+pv_capacity_is_expected() {
+  [[ "$(kubectl get pv "$PV" -o jsonpath='{.spec.capacity.storage}')" == "$SIZE" ]]
+}
+
+pv_claim_ref_is_expected() {
+  [[ "$(kubectl get pv "$PV" -o jsonpath='{.spec.claimRef.namespace}/{.spec.claimRef.name}')" == "$NS/$PVC" ]]
+}
+
+pv_is_bound() {
+  [[ "$(kubectl get pv "$PV" -o jsonpath='{.status.phase}')" == "Bound" ]]
+}
+
+deployment_uses_pvc() {
+  kubectl get deployment "$DEPLOY" -n "$NS" \
+    -o jsonpath='{range .spec.template.spec.volumes[*]}{.persistentVolumeClaim.claimName}{"\n"}{end}' \
+    | grep -qx "$PVC"
+}
+
+deployment_is_available() {
+  local available
+  available="$(kubectl get deployment "$DEPLOY" -n "$NS" -o jsonpath='{.status.availableReplicas}' 2>/dev/null)"
+  [[ -n "$available" && "$available" -ge 1 ]]
+}
+
+mariadb_pod_is_running() {
+  kubectl get pods -n "$NS" -l "app=$DEPLOY" --no-headers 2>/dev/null | grep -q Running
+}
+
 echo "======================================"
 echo " Validating Question 1: MariaDB PV"
+echo " Variant: $VARIANT/$VARIANT_COUNT"
+echo " Expected: namespace=$NS, PV=$PV, PVC=$PVC,"
+echo "           deployment=$DEPLOY, storage=$SIZE"
 echo "======================================"
 
-# 1. PVC named mariadb exists in mariadb namespace
-check "PVC 'mariadb' exists in namespace 'mariadb'" \
-  kubectl get pvc mariadb -n mariadb
+# 1. PVC exists in the variant's namespace
+check "PVC '$PVC' exists in namespace '$NS'" \
+  kubectl get pvc "$PVC" -n "$NS"
 
 # 2. PVC access mode is ReadWriteOnce
 check "PVC access mode is ReadWriteOnce" \
-  bash -c '[[ "$(kubectl get pvc mariadb -n mariadb -o jsonpath="{.spec.accessModes[0]}")" == "ReadWriteOnce" ]]'
+  pvc_access_mode_is_rwo
 
-# 3. PVC storage request is 250Mi
-check "PVC storage request is 250Mi" \
-  bash -c '[[ "$(kubectl get pvc mariadb -n mariadb -o jsonpath="{.spec.resources.requests.storage}")" == "250Mi" ]]'
+# 3. PVC storage request matches the variant
+check "PVC storage request is $SIZE" \
+  pvc_size_is_expected
 
 # 4. PVC is Bound
 check "PVC is in Bound state" \
-  bash -c '[[ "$(kubectl get pvc mariadb -n mariadb -o jsonpath="{.status.phase}")" == "Bound" ]]'
+  pvc_is_bound
 
-# 5. PV mariadb-pv is Bound
-check "PV 'mariadb-pv' is Bound" \
-  bash -c '[[ "$(kubectl get pv mariadb-pv -o jsonpath="{.status.phase}")" == "Bound" ]]'
+# 5. PV exists
+check "PV '$PV' exists" \
+  kubectl get pv "$PV"
 
-# 6. Deployment mariadb exists in mariadb namespace
-check "Deployment 'mariadb' exists in namespace 'mariadb'" \
-  kubectl get deployment mariadb -n mariadb
+# 6. PV capacity matches the variant
+check "PV capacity is $SIZE" \
+  pv_capacity_is_expected
 
-# 7. Deployment references the PVC mariadb
-check "Deployment uses PVC 'mariadb'" \
-  bash -c '[[ "$(kubectl get deployment mariadb -n mariadb -o jsonpath="{.spec.template.spec.volumes[0].persistentVolumeClaim.claimName}")" == "mariadb" ]]'
+# 7. PV is bound to the expected PVC
+check "PV is bound to '$NS/$PVC'" \
+  pv_claim_ref_is_expected
 
-# 8. Deployment is available (at least 1 ready replica)
+# 8. PV is Bound
+check "PV '$PV' is Bound" \
+  pv_is_bound
+
+# 9. Deployment exists in the variant's namespace
+check "Deployment '$DEPLOY' exists in namespace '$NS'" \
+  kubectl get deployment "$DEPLOY" -n "$NS"
+
+# 10. Deployment references the variant's PVC
+check "Deployment uses PVC '$PVC'" \
+  deployment_uses_pvc
+
+# 11. Deployment is available (at least 1 ready replica)
 check "Deployment has at least 1 available replica" \
-  bash -c '[[ $(kubectl get deployment mariadb -n mariadb -o jsonpath="{.status.availableReplicas}") -ge 1 ]]'
+  deployment_is_available
 
-# 9. Pod is Running
+# 12. Pod is Running
 check "MariaDB pod is Running" \
-  bash -c 'kubectl get pods -n mariadb -l app=mariadb -o jsonpath="{.items[0].status.phase}" | grep -q Running'
+  mariadb_pod_is_running
 
 echo ""
 echo "Results: $PASS/$TOTAL passed, $FAIL failed"
-[[ $FAIL -eq 0 ]] && echo "All checks passed!" || echo "Some checks failed."
-exit $FAIL
+if [[ $FAIL -eq 0 ]]; then
+  echo "All checks passed!"
+  exit 0
+else
+  echo "Some checks failed."
+  exit 1
+fi
