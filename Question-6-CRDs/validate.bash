@@ -40,7 +40,7 @@ echo "=================================================="
 echo " Validating Question 6: CRDs"
 echo " Variant: $VARIANT/$VARIANT_COUNT"
 echo " Expected: cert-manager $CM_VERSION"
-echo "           $EXPLAIN_TARGET documentation in $SUBJECT_FILE"
+echo "           $EXPLAIN_TARGET documentation in $FIELD_FILE"
 echo "=================================================="
 
 # 1. Both answer files must exist and contain output.
@@ -48,10 +48,10 @@ check "File $RESOURCES_FILE exists" \
   test -f "$RESOURCES_FILE"
 check "File $RESOURCES_FILE is not empty" \
   test -s "$RESOURCES_FILE"
-check "File $SUBJECT_FILE exists" \
-  test -f "$SUBJECT_FILE"
-check "File $SUBJECT_FILE is not empty" \
-  test -s "$SUBJECT_FILE"
+check "File $FIELD_FILE exists" \
+  test -f "$FIELD_FILE"
+check "File $FIELD_FILE is not empty" \
+  test -s "$FIELD_FILE"
 
 # 2. The CRD list must contain every cert-manager CRD from the pinned release.
 for crd in "${CERT_MANAGER_CRDS[@]}"; do
@@ -61,8 +61,8 @@ done
 
 # 3. The documentation must match the exact field selected by the variant.
 for marker in "${TARGET_MARKERS[@]}"; do
-  check "$SUBJECT_FILE documents '$marker'" \
-    file_contains "$SUBJECT_FILE" "$marker"
+  check "$FIELD_FILE documents '$marker'" \
+    file_contains "$FIELD_FILE" "$marker"
 done
 
 echo ""

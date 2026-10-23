@@ -16,7 +16,11 @@ kubectl delete deployment "$DEPLOYMENT" -n "$NS" --ignore-not-found >/dev/null 2
 kubectl delete namespace "$NS" --ignore-not-found --wait=true --timeout=120s >/dev/null 2>&1 || true
 kubectl delete crd "${CERT_MANAGER_CRDS[@]}" --ignore-not-found >/dev/null 2>&1 || true
 
-rm -f "$RESOURCES_FILE" "$SUBJECT_FILE"
+for ((v = 1; v <= VARIANT_COUNT; v++)); do
+  variant_config "$v"
+  rm -f "$FIELD_FILE"
+done
+rm -f "$RESOURCES_FILE"
 
 cka_variant_clear "$SCRIPT_DIR"
 

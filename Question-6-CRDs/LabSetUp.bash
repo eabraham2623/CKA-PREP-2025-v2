@@ -25,10 +25,15 @@ echo " $VARIANT_SUMMARY"
 echo "============================================================"
 echo
 
-# Remove answers from an earlier attempt or variant so validation always
-# reflects the current run.
+# Remove answers from every preset so switching variants cannot leave stale
+# output behind.
 echo "Removing previous answer files..."
-rm -f "$RESOURCES_FILE" "$SUBJECT_FILE"
+for ((v = 1; v <= VARIANT_COUNT; v++)); do
+  variant_config "$v"
+  rm -f "$FIELD_FILE"
+done
+rm -f "$RESOURCES_FILE"
+variant_config "$VARIANT"
 
 echo "Creating namespace: $NS"
 kubectl create namespace "$NS" --dry-run=client -o yaml | kubectl apply -f -
