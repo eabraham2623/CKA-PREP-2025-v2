@@ -1,11 +1,15 @@
 # Question HPA
-# Create a new HorizontalPodAutoScaler(HPA) named apache-server in the autoscale namespace
+# Create a new HorizontalPodAutoscaler (HPA) in the namespace printed by setup.
 
 # Task
-# 1. The HPA must target the existing deployment called apache-deployment in the autoscale namespace
-# 2. Set the HPA to target for 50% CPU usage per Pod
-# 3. Configure the HPA to have a minimum of 1 pod and a maximum of 4 pods
-# 4. Set the downscale stabilization window to 30 seconds
+# 1. The HPA must target the existing deployment printed by setup in the
+#    namespace printed by setup.
+# 2. Set the HPA to target the CPU percentage per Pod printed by setup.
+# 3. Configure the minimum and maximum replica counts printed by setup.
+# 4. Set the downscale stabilization window printed by setup.
+
+# Run details are printed by setup: namespace, deployment, HPA name, CPU target,
+# replica bounds, and downscale stabilization window.
 
 # Video Link - https://youtu.be/YGkARVFKtmM
 

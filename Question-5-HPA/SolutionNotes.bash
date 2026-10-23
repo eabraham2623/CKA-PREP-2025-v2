@@ -1,28 +1,38 @@
-# Create HPA for apache-deployment in autoscale namespace
-kubectl get deploy -n autoscale
-cat <<'EOF' > hpa.yaml
+# Solution Notes for Question 5 - HPA
+#
+# LabSetUp.bash prints the namespace, deployment, HPA name, CPU target, replica
+# bounds, and downscale stabilization window for this run. Substitute those
+# values in the manifest below.
+
+# Step 1: inspect the target deployment
+kubectl get deployment "<DEPLOY>" -n "<NAMESPACE>"
+
+# Step 2: create the HPA
+cat <<'EOF' > ~/hpa.yaml
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
-  name: apache-server
-  namespace: autoscale
+  name: <HPA>
+  namespace: <NAMESPACE>
 spec:
   scaleTargetRef:
     apiVersion: apps/v1
     kind: Deployment
-    name: apache-deployment
-  minReplicas: 1
-  maxReplicas: 4
+    name: <DEPLOY>
+  minReplicas: <MIN_REPLICAS>
+  maxReplicas: <MAX_REPLICAS>
   metrics:
   - type: Resource
     resource:
       name: cpu
       target:
         type: Utilization
-        averageUtilization: 50
+        averageUtilization: <CPU_TARGET>
   behavior:
     scaleDown:
-      stabilizationWindowSeconds: 30
+      stabilizationWindowSeconds: <STABILIZATION>
 EOF
-kubectl apply -f hpa.yaml
-kubectl get hpa -n autoscale
+
+# Step 3: apply and verify
+kubectl apply -f ~/hpa.yaml
+kubectl get hpa "<HPA>" -n "<NAMESPACE>"
