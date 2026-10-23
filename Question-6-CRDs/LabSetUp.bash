@@ -1,32 +1,73 @@
 #!/bin/bash
-set -e
+# LabSetUp.bash for Question 6 - CRDs (cert-manager)
+set -euo pipefail
 
-echo "Creating namespace: cert-manager"
-kubectl create ns cert-manager --dry-run=client -o yaml | kubectl apply -f -
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-echo "Applying cert-manager CRDs..."
-kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.14.0/cert-manager.crds.yaml
+# shellcheck source=../scripts/lib/variant.sh
+source "$REPO_ROOT/scripts/lib/variant.sh"
+# shellcheck source=variants.bash
+source "$SCRIPT_DIR/variants.bash"
+
+REQUESTED_VARIANT="${1:-}"
+if [[ -n "$REQUESTED_VARIANT" ]]; then
+  VARIANT="$(cka_variant_select "$SCRIPT_DIR" "$VARIANT_COUNT" "$REQUESTED_VARIANT")"
+else
+  VARIANT="$(cka_variant_select "$SCRIPT_DIR" "$VARIANT_COUNT")"
+fi
+variant_config "$VARIANT"
+
+echo "============================================================"
+echo " Question 6: CRDs - cert-manager"
+echo " Variant $VARIANT/$VARIANT_COUNT selected for this run"
+echo " $VARIANT_SUMMARY"
+echo "============================================================"
+echo
+
+# Remove answers from an earlier attempt or variant so validation always
+# reflects the current run.
+echo "Removing previous answer files..."
+rm -f "$RESOURCES_FILE" "$SUBJECT_FILE"
+
+echo "Creating namespace: $NS"
+kubectl create namespace "$NS" --dry-run=client -o yaml | kubectl apply -f -
+
+echo "Applying cert-manager $CM_VERSION CRDs..."
+kubectl apply -f "$CRD_URL"
+
+echo "Waiting for cert-manager CRDs to be established..."
+for crd in "${CERT_MANAGER_CRDS[@]}"; do
+  kubectl wait --for=condition=Established "crd/$crd" --timeout=120s >/dev/null
+done
 
 echo "Creating minimal cert-manager Deployment..."
-cat <<EOF | kubectl apply -n cert-manager -f -
+kubectl apply -n "$NS" -f - <<EOF
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: cert-manager
+  name: $DEPLOYMENT
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: cert-manager
+      app: $DEPLOYMENT
   template:
     metadata:
       labels:
-        app: cert-manager
+        app: $DEPLOYMENT
     spec:
       containers:
-      - name: cert-manager
-        image: quay.io/jetstack/cert-manager-controller:v1.14.0
+      - name: $DEPLOYMENT
+        image: quay.io/jetstack/cert-manager-controller:$CM_VERSION
         args: ["--v=2"]
 EOF
 
-echo "[OK] Cert-Manager setup complete."
+echo
+echo "[OK] Question 6 setup complete."
+echo "   - Namespace: $NS"
+echo "   - cert-manager version: $CM_VERSION"
+echo "   - Field to document: $EXPLAIN_TARGET"
+echo
+
+variant_question "$VARIANT"
