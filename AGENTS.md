@@ -13,6 +13,9 @@ Run from the repo root:
 - No test/build/lint command exists; `validate.bash` is the test. It checks current cluster state and does not run setup.
 - Clean up before retrying a lab: some setups are not idempotent (Q16 `kubectl create deployment`, Q17 `kubectl create secret tls`).
 
+## Git
+- Never run `git commit` or `git push` without explicit user approval. Make and test changes first, then ask.
+
 ## Question layout
 - Keep the five standard files: `LabSetUp.bash`, `Questions.bash`, `SolutionNotes.bash`, `validate.bash`, `cleanup.bash`. Variant-enabled questions also add `variants.bash`. `Questions.bash` and `SolutionNotes.bash` are study text; validation lives in `validate.bash`.
 - Directory names must remain `Question-<number>-<topic>`; wrappers resolve numbers with `find ... -name "Question-$N-*"`. Add new questions to the README table.
