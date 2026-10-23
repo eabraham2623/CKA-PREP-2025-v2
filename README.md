@@ -39,7 +39,7 @@ Straightforward CKA practice labs derived from the CKA-PREP playlist. Every ques
 
 ### Randomized lab variants
 
-Some questions have multiple variants. Running setup without a variant number selects one at random and prints the full question for that run, including the exact names, versions, chart values, and paths:
+Some questions have multiple variants. Running setup without a variant number selects one at random and prints the full question for that run, including the exact names, versions, chart values, paths, replica counts, and percentages:
 
 ```bash
 scripts/run-question.sh 1
@@ -107,7 +107,7 @@ This opens VSCodium in the current directory, allowing you to browse and edit al
 | 1 | MariaDB — Persistent Volume (3 variants) | https://youtu.be/aXvvc1EB1zg |
 | 2 | ArgoCD — Install via Helm (no CRDs, 3 variants) | https://youtu.be/e0YGRSjb8CU |
 | 3 | Sidecar Container (3 variants) | https://youtu.be/3xraEGGQJDY |
-| 4 | Resource Allocation | https://youtu.be/ZqGDdETii8c |
+| 4 | Resource Allocation (3 variants) | https://youtu.be/ZqGDdETii8c |
 | 5 | HPA — HorizontalPodAutoscaler | https://youtu.be/YGkARVFKtmM |
 | 6 | CRDs — cert-manager | https://youtu.be/SA1DzLQaDJs |
 | 7 | PriorityClass | https://youtu.be/CZzxGyF6OHc |

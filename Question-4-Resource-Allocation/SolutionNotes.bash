@@ -1,35 +1,44 @@
-# Step 0: find the node's allocatable resources
-kubectl describe node | grep -A5 "Allocatable:"
-# Example output:
-#   Allocatable:
-#     cpu:     1
-#     memory:  1843520Ki
+# Solution Notes for Question 4 - Resource Allocation
 #
-# Convert memory from Ki to Mi: divide by 1024
-#   1843520Ki / 1024 = 1800Mi
-# CPU is already in cores (1 = 1000m)
-
-# Step 1: pause workload
-kubectl scale deployment wordpress --replicas 0
-
-# Step 2: edit deployment
-kubectl edit deployment wordpress
-# There are 3 pods, each with 2 co-located (sidecar) containers = 6 containers total.
-# Both containers run simultaneously, so divide node resources by 6:
-#   CPU:    1000m / 6 ≈ 166m per container
-#   Memory: 1800Mi / 6 = 300Mi per container
+# Reviewer note: this lab was adapted from the original Question 4 into three
+# randomized variants and the question wording was rewritten to match the
+# original. It may be worthwhile to compare the current wording against the
+# original question and confirm the intent, scope, and difficulty still match.
 #
-# Set requests slightly under the even split (scheduling headroom) and limits at/near the max:
-# resources:
-#   requests:
-#     cpu: "150m"
-#     memory: "250Mi"
-#   limits:
-#     cpu: "160m"
-#     memory: "300Mi"
-# Apply the same values to every container in spec.template.spec.containers[]
+# LabSetUp.bash prints the namespace, deployment, replica count, reserved
+# overhead percentage, and schedulable node for this run. Substitute those
+# values in the commands below.
 
-# Step 3: resume replicas
-kubectl scale deployment wordpress --replicas 3
-kubectl rollout status deployment wordpress
-kubectl get pods -l app=wordpress
+# Step 1: inspect the node's allocatable resources
+kubectl describe node "<NODE>"
+# Allocatable:
+#   cpu:    <CPU>
+#   memory: <MEMORY>
+
+# Step 2: calculate the per-pod share
+# cpu_share_m  = floor(allocatable_cpu_m  * (100 - <OVERHEAD_PCT>) / 100 / <REPLICAS>)
+# mem_share_mi = floor(allocatable_mem_mi * (100 - <OVERHEAD_PCT>) / 100 / <REPLICAS>)
+# Round each result down to the nearest 10m CPU and 10Mi memory.
+#
+# Init containers do not run at the same time as the main container. The pod's
+# effective request is max(init request, sum of main requests), so giving every
+# container the full per-pod share uses exactly that share. Do not divide the
+# per-pod share by the number of containers again.
+
+# Step 3: pause the workload and edit the deployment
+kubectl scale deployment "<DEPLOY>" -n "<NAMESPACE>" --replicas=0
+kubectl edit deployment "<DEPLOY>" -n "<NAMESPACE>"
+# Add the same resources block to the init container and the main container:
+#   resources:
+#     requests:
+#       cpu: "<CPU_SHARE>m"
+#       memory: "<MEM_SHARE>Mi"
+#     limits:
+#       cpu: "<CPU_SHARE>m"
+#       memory: "<MEM_SHARE>Mi"
+
+# Step 4: resume the deployment and verify
+kubectl scale deployment "<DEPLOY>" -n "<NAMESPACE>" --replicas="<REPLICAS>"
+kubectl rollout status "deployment/<DEPLOY>" -n "<NAMESPACE>" --timeout=180s
+kubectl get pods -n "<NAMESPACE>" -l "app=<DEPLOY>"
+kubectl describe node "<NODE>" | grep -A10 'Allocated resources'
