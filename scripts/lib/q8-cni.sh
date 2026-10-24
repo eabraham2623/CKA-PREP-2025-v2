@@ -142,16 +142,52 @@ cka_q8_cleanup_flannel() {
   return "$rc"
 }
 
+cka_q8_calico_namespaces_remain() {
+  local ns
+  for ns in tigera-operator calico-system calico-apiserver; do
+    kubectl get namespace "$ns" >/dev/null 2>&1 && return 0
+  done
+  return 1
+}
+
+cka_q8_clear_calico_sa_finalizers() {
+  local ns
+  for ns in tigera-operator calico-system calico-apiserver; do
+    kubectl get namespace "$ns" >/dev/null 2>&1 || continue
+    kubectl get serviceaccount -n "$ns" -o name 2>/dev/null \
+      | xargs -r -n1 kubectl patch -n "$ns" --type=merge \
+          -p '{"metadata":{"finalizers":null}}' >/dev/null 2>&1 || true
+  done
+}
+
 cka_q8_cleanup_calico() {
-  local crd rc=0
+  local crd rc=0 waited=0
 
   kubectl delete installation default --ignore-not-found --wait=false >/dev/null 2>&1 || true
   kubectl delete daemonset calico-node -n calico-system --ignore-not-found >/dev/null 2>&1 || true
   kubectl delete daemonset calico-node -n kube-system --ignore-not-found >/dev/null 2>&1 || true
   kubectl delete deployment calico-kube-controllers -n calico-system --ignore-not-found >/dev/null 2>&1 || true
   kubectl delete deployment calico-kube-controllers -n kube-system --ignore-not-found >/dev/null 2>&1 || true
+
+  # The Tigera operator puts a tigera.io/cni-protector finalizer on its
+  # service accounts. Removing the operator before it clears those leaves
+  # the namespace Terminating forever, so clear them first.
+  cka_q8_clear_calico_sa_finalizers
+
   kubectl delete namespace tigera-operator calico-system calico-apiserver \
-    --ignore-not-found --wait=true --timeout=180s >/dev/null 2>&1 || rc=1
+    --ignore-not-found --wait=false >/dev/null 2>&1 || rc=1
+
+  # Bounded wait so cleanup can never hang on an operator-owned finalizer.
+  while (( waited < 180 )); do
+    cka_q8_calico_namespaces_remain || break
+    cka_q8_clear_calico_sa_finalizers
+    sleep 5
+    waited=$((waited + 5))
+  done
+  if cka_q8_calico_namespaces_remain; then
+    echo "Warning: Calico namespaces are still terminating." >&2
+    rc=1
+  fi
 
   for crd in \
     ippools.crd.projectcalico.org \

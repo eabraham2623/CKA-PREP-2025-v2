@@ -57,6 +57,10 @@ calico_pool_matches() {
     | grep -qx "$POD_SUBNET"
 }
 
+calico_bgp_disabled() {
+  [[ "$(kubectl get installation default -o jsonpath='{.spec.calicoNetwork.bgp}' 2>/dev/null)" == "Disabled" ]]
+}
+
 flannel_netconf_valid() {
   local netconf
   netconf="$(kubectl get configmap kube-flannel-cfg -n kube-flannel \
@@ -165,12 +169,13 @@ if [[ "$CNI_PROFILE" == "calico" ]]; then
   check "Calico node image is $CNI_VERSION" \
     ds_image_contains calico-system calico-node ":$CNI_VERSION"
   check "Calico IP pool uses $POD_SUBNET" calico_pool_matches
+  check "Calico BGP is Disabled" calico_bgp_disabled
   check "Calico NetworkPolicy CRD exists" \
     kubectl get crd networkpolicies.crd.projectcalico.org
   check "Calico CNI config is active on controlplane" \
-    local_cni_config /etc/cni/net.d/10-calico.conflist calico
+    local_cni_config "/etc/cni/net.d/$CNI_CONFIG_FILE" calico
   check "Calico CNI config is active on node01" \
-    remote_cni_config /etc/cni/net.d/10-calico.conflist calico
+    remote_cni_config "/etc/cni/net.d/$CNI_CONFIG_FILE" calico
   check "Flannel is not installed" bash -c '
     ! kubectl get namespace kube-flannel >/dev/null 2>&1 &&
     ! kubectl get daemonset kube-flannel-ds -n kube-flannel >/dev/null 2>&1
@@ -192,9 +197,9 @@ else
     kubectl get configmap kube-flannel-cfg -n kube-flannel
   check "VXLAN overlay network uses $POD_SUBNET and backend vxlan" flannel_netconf_valid
   check "VXLAN overlay CNI config is active on controlplane" \
-    local_cni_config /etc/cni/net.d/10-flannel.conflist flannel
+    local_cni_config "/etc/cni/net.d/$CNI_CONFIG_FILE" flannel
   check "VXLAN overlay CNI config is active on node01" \
-    remote_cni_config /etc/cni/net.d/10-flannel.conflist flannel
+    remote_cni_config "/etc/cni/net.d/$CNI_CONFIG_FILE" flannel
   check "VXLAN overlay subnet.env matches $POD_SUBNET on controlplane" local_flannel_subnet
   check "VXLAN overlay subnet.env matches $POD_SUBNET on node01" remote_flannel_subnet
   check "VXLAN device flannel.1 exists on controlplane" local_link_exists flannel.1
