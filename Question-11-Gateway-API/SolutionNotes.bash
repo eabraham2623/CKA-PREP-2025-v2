@@ -1,51 +1,58 @@
+# Solution Notes for Question 11 - Gateway API
+#
+# LabSetUp.bash prints the exact Ingress, hostname, Gateway, HTTPRoute, and
+# GatewayClass selected for this run. Substitute those values below.
+
 # Step 1: Inspect existing assets (host, secret, backend service/port)
-kubectl describe ingress web
-kubectl describe secret web-tls
+kubectl describe ingress <INGRESS> -n default
+kubectl describe secret <TLS_SECRET> -n default
 
 # Step 2: Create Gateway (mirrors Ingress host + TLS)
-cat <<'EOF' > gw.yaml
+cat <<'EOF' > ~/gw.yaml
 apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
 metadata:
-  name: web-gateway
+  name: <GATEWAY>
+  namespace: default
 spec:
-  gatewayClassName: nginx-class
+  gatewayClassName: <GATEWAY_CLASS>
   listeners:
   - name: https
     protocol: HTTPS
     port: 443
-    hostname: gateway.web.k8s.local
+    hostname: <HOST>
     tls:
       mode: Terminate
       certificateRefs:
       - kind: Secret
-        name: web-tls
+        name: <TLS_SECRET>
 EOF
-kubectl apply -f gw.yaml
-kubectl get gateway
+kubectl apply -f ~/gw.yaml
+kubectl get gateway -n default
 
 # Step 3: Create HTTPRoute (mirrors Ingress rules)
-cat <<'EOF' > http.yaml
+cat <<'EOF' > ~/http.yaml
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
-  name: web-route
+  name: <HTTPROUTE>
+  namespace: default
 spec:
   parentRefs:
-  - name: web-gateway
+  - name: <GATEWAY>
   hostnames:
-  - "gateway.web.k8s.local"
+  - "<HOST>"
   rules:
   - matches:
     - path:
         type: PathPrefix
         value: /
     backendRefs:
-    - name: web-service
-      port: 80
+    - name: <SERVICE>
+      port: <SERVICE_PORT>
 EOF
-kubectl apply -f http.yaml
+kubectl apply -f ~/http.yaml
 
 # Step 4: Verify
-kubectl describe gateway web-gateway
-kubectl describe httproute web-route
+kubectl describe gateway <GATEWAY> -n default
+kubectl describe httproute <HTTPROUTE> -n default
