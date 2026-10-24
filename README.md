@@ -116,7 +116,7 @@ This opens VSCodium in the current directory, allowing you to browse and edit al
 | 10 | Taints & Tolerations (3 variants) | https://youtu.be/oy6Mdqt1-jk |
 | 11 | Gateway API (3 variants) | https://youtu.be/G9zispvOCHE |
 | 12 | Ingress (3 variants) | https://youtu.be/sy9zABvDedQ |
-| 13 | Network Policy | https://youtu.be/rA8mXYTU0W8 |
+| 13 | Network Policy (3 variants) | https://youtu.be/rA8mXYTU0W8 |
 | 14 | Storage Class | https://youtu.be/di7X7OHn2fc |
 | 15 | Etcd Fix | https://youtu.be/IL448T6r8H4 |
 | 16 | NodePort Service | — |

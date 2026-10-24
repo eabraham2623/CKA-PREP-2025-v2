@@ -1,6 +1,6 @@
 # Question:
-# There are two deployments, Frontend and Backend
-# Frontend is in the frontend namespace, Backend is in the backend namespace
+# There are two deployments, one in the frontend namespace and one in the backend namespace.
+# Lab setup prints the exact deployment names, pod labels, and backend service for this run.
 
 # Task
 # Look at the Network Policy YAML files in ./network-policies
