@@ -160,14 +160,55 @@ cka_q8_clear_calico_sa_finalizers() {
   done
 }
 
-cka_q8_cleanup_calico() {
-  local crd rc=0 waited=0
+cka_q8_calico_cr_present() {
+  kubectl get installations.operator.tigera.io >/dev/null 2>&1 \
+    || kubectl get apiservers.operator.tigera.io >/dev/null 2>&1
+}
 
-  kubectl delete installation default --ignore-not-found --wait=false >/dev/null 2>&1 || true
-  kubectl delete daemonset calico-node -n calico-system --ignore-not-found >/dev/null 2>&1 || true
-  kubectl delete daemonset calico-node -n kube-system --ignore-not-found >/dev/null 2>&1 || true
-  kubectl delete deployment calico-kube-controllers -n calico-system --ignore-not-found >/dev/null 2>&1 || true
-  kubectl delete deployment calico-kube-controllers -n kube-system --ignore-not-found >/dev/null 2>&1 || true
+cka_q8_clear_calico_cr_finalizers() {
+  local kind
+  for kind in installations.operator.tigera.io apiservers.operator.tigera.io; do
+    kubectl get "$kind" -o name 2>/dev/null \
+      | xargs -r -n1 kubectl patch --type=merge \
+          -p '{"metadata":{"finalizers":null}}' >/dev/null 2>&1 || true
+  done
+}
+
+cka_q8_tigera_operator_running() {
+  local available
+  available="$(kubectl get deployment tigera-operator -n tigera-operator \
+    -o jsonpath='{.status.availableReplicas}' 2>/dev/null)"
+  [[ "$available" =~ ^[0-9]+$ && "$available" -ge 1 ]]
+}
+
+cka_q8_cleanup_calico() {
+  local crd rc=0 waited=0 remaining=""
+
+  # Let the still-running operator run its own cleanup finalizers. The
+  # APIServer CR owns one of the Installation finalizers, so delete it
+  # first. Deleting the operator before these CRs are gone would leave the
+  # finalizers unowned and block CRD deletion forever.
+  if cka_q8_tigera_operator_running; then
+    kubectl delete apiserver default --ignore-not-found \
+      --wait=true --timeout=120s >/dev/null 2>&1 || true
+    kubectl delete installation default --ignore-not-found \
+      --wait=true --timeout=120s >/dev/null 2>&1 || true
+  else
+    kubectl delete apiserver default installation default --ignore-not-found \
+      --wait=false >/dev/null 2>&1 || true
+  fi
+
+  # An interrupted or operator-less cleanup can leave the CRs terminating.
+  if cka_q8_calico_cr_present; then
+    cka_q8_clear_calico_cr_finalizers
+    kubectl delete installations.operator.tigera.io,apiservers.operator.tigera.io \
+      --all --ignore-not-found --wait=false >/dev/null 2>&1 || true
+  fi
+
+  kubectl delete daemonset calico-node -n calico-system --ignore-not-found --wait=false >/dev/null 2>&1 || true
+  kubectl delete daemonset calico-node -n kube-system --ignore-not-found --wait=false >/dev/null 2>&1 || true
+  kubectl delete deployment calico-kube-controllers -n calico-system --ignore-not-found --wait=false >/dev/null 2>&1 || true
+  kubectl delete deployment calico-kube-controllers -n kube-system --ignore-not-found --wait=false >/dev/null 2>&1 || true
 
   # The Tigera operator puts a tigera.io/cni-protector finalizer on its
   # service accounts. Removing the operator before it clears those leaves
@@ -188,6 +229,12 @@ cka_q8_cleanup_calico() {
     echo "Warning: Calico namespaces are still terminating." >&2
     rc=1
   fi
+
+  # CRs must be gone (or at least releasable) before their CRDs can finish
+  # deleting, otherwise customresourcecleanup retries for 60s at a time.
+  cka_q8_clear_calico_cr_finalizers
+  kubectl delete installations.operator.tigera.io,apiservers.operator.tigera.io \
+    --all --ignore-not-found --wait=false >/dev/null 2>&1 || true
 
   for crd in \
     ippools.crd.projectcalico.org \
@@ -212,12 +259,40 @@ cka_q8_cleanup_calico() {
   kubectl get crd -o name 2>/dev/null \
     | grep -E 'projectcalico\.org$|operator\.tigera\.io$' \
     | xargs -r kubectl delete --ignore-not-found --wait=false >/dev/null 2>&1 || true
+
+  # customresourcecleanup retries for 60s at a time when it cannot finish,
+  # so bound the wait and force-clear finalizers on anything left.
+  waited=0
+  remaining=""
+  while (( waited < 120 )); do
+    remaining="$(kubectl get crd -o name 2>/dev/null \
+      | grep -E 'projectcalico\.org$|operator\.tigera\.io$' || true)"
+    [[ -z "$remaining" ]] && break
+    sleep 5
+    waited=$((waited + 5))
+  done
+  if [[ -n "$remaining" ]]; then
+    echo "Warning: clearing finalizers on remaining Calico CRDs." >&2
+    printf '%s\n' "$remaining" \
+      | xargs -r -n1 kubectl patch --type=merge \
+          -p '{"metadata":{"finalizers":null}}' >/dev/null 2>&1 || true
+    sleep 5
+    remaining="$(kubectl get crd -o name 2>/dev/null \
+      | grep -E 'projectcalico\.org$|operator\.tigera\.io$' || true)"
+    if [[ -n "$remaining" ]]; then
+      echo "Warning: Calico CRDs are still present." >&2
+      rc=1
+    fi
+  fi
+
   kubectl get clusterrole,clusterrolebinding -o name 2>/dev/null \
     | grep -Ei 'calico|tigera|canal' \
-    | xargs -r kubectl delete --ignore-not-found >/dev/null 2>&1 || true
+    | xargs -r kubectl delete --ignore-not-found --wait=false >/dev/null 2>&1 || true
+  # Automanaged APIServices are recreated while their CRD still exists, so
+  # never wait for deletion here.
   kubectl get apiservice -o name 2>/dev/null \
     | grep -Ei 'projectcalico|tigera' \
-    | xargs -r kubectl delete --ignore-not-found >/dev/null 2>&1 || true
+    | xargs -r kubectl delete --ignore-not-found --wait=false >/dev/null 2>&1 || true
 
   return "$rc"
 }
