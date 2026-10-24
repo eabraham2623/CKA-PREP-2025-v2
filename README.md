@@ -112,7 +112,7 @@ This opens VSCodium in the current directory, allowing you to browse and edit al
 | 6 | CRDs — cert-manager (3 variants) | https://youtu.be/SA1DzLQaDJs |
 | 7 | PriorityClass (3 variants) | https://youtu.be/CZzxGyF6OHc |
 | 8 | CNI & Network Policy | https://youtu.be/Uc04Ui4x3EM |
-| 9 | cri-dockerd | https://youtu.be/ybzo1vXiqjU |
+| 9 | cri-dockerd (3 variants) | https://youtu.be/ybzo1vXiqjU |
 | 10 | Taints & Tolerations | https://youtu.be/oy6Mdqt1-jk |
 | 11 | Gateway API | https://youtu.be/G9zispvOCHE |
 | 12 | Ingress | https://youtu.be/sy9zABvDedQ |

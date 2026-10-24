@@ -1,6 +1,14 @@
 #!/bin/bash
-# Validation script for Question 9 - Cri-Dockerd
+# Validation script for Question 9 - cri-dockerd
 set -uo pipefail
+
+QUESTION_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$QUESTION_DIR/.." && pwd)"
+source "$REPO_ROOT/scripts/lib/variant.sh"
+source "$QUESTION_DIR/variants.bash"
+
+SELECTED_VARIANT="$(cka_variant_read "$QUESTION_DIR" "$VARIANT_COUNT")" || exit 1
+variant_config "$SELECTED_VARIANT" || exit 1
 
 PASS=0
 FAIL=0
@@ -19,43 +27,55 @@ check() {
   fi
 }
 
+check_sysctl() {
+  local key="$1"
+  local expected="$2"
+  [[ "$(sysctl -n "$key" 2>/dev/null)" == "$expected" ]]
+}
+
+persisted_settings_match() {
+  local i actual
+  [[ -f "$SYSCTL_FILE" ]] || return 1
+  for i in "${!SYSCTL_KEYS[@]}"; do
+    actual="$(awk -F= -v key="${SYSCTL_KEYS[$i]}" '
+      {
+        name = $1
+        gsub(/^[[:space:]]+|[[:space:]]+$/, "", name)
+        if (name == key) {
+          value = substr($0, index($0, "=") + 1)
+          sub(/[[:space:]]*#.*/, "", value)
+          gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+        }
+      }
+      END { if (value != "") print value }
+    ' "$SYSCTL_FILE")"
+    [[ "$actual" == "${SYSCTL_VALUES[$i]}" ]] || return 1
+  done
+}
+
 echo "======================================"
-echo " Validating Question 9: Cri-Dockerd"
+echo " Validating Question 9: cri-dockerd"
+echo " Variant $SELECTED_VARIANT/$VARIANT_COUNT"
 echo "======================================"
 
-# 1. cri-dockerd package is installed
 check "cri-dockerd package is installed" \
   bash -c 'dpkg -l cri-dockerd 2>/dev/null | grep -q "^ii"'
+check "$CRI_DOCKER_SERVICE is enabled" \
+  bash -c 'systemctl is-enabled "$1" 2>/dev/null | grep -qx enabled' _ "$CRI_DOCKER_SERVICE"
+check "$CRI_DOCKER_SERVICE is active (running)" \
+  bash -c 'systemctl is-active "$1" 2>/dev/null | grep -qx active' _ "$CRI_DOCKER_SERVICE"
 
-# 2. cri-docker service is enabled
-check "cri-docker service is enabled" \
-  bash -c 'systemctl is-enabled cri-docker.service 2>/dev/null | grep -q enabled'
-
-# 3. cri-docker service is active/running
-check "cri-docker service is active (running)" \
-  bash -c 'systemctl is-active cri-docker.service 2>/dev/null | grep -q active'
-
-# 4. net.bridge.bridge-nf-call-iptables = 1
-check "sysctl net.bridge.bridge-nf-call-iptables = 1" \
-  bash -c '[[ "$(sysctl -n net.bridge.bridge-nf-call-iptables 2>/dev/null)" == "1" ]]'
-
-# 5. net.ipv6.conf.all.forwarding = 1
-check "sysctl net.ipv6.conf.all.forwarding = 1" \
-  bash -c '[[ "$(sysctl -n net.ipv6.conf.all.forwarding 2>/dev/null)" == "1" ]]'
-
-# 6. net.ipv4.ip_forward = 1
-check "sysctl net.ipv4.ip_forward = 1" \
-  bash -c '[[ "$(sysctl -n net.ipv4.ip_forward 2>/dev/null)" == "1" ]]'
-
-# 7. net.netfilter.nf_conntrack_max = 131072
-check "sysctl net.netfilter.nf_conntrack_max = 131072" \
-  bash -c '[[ "$(sysctl -n net.netfilter.nf_conntrack_max 2>/dev/null)" == "131072" ]]'
-
-# 8. Settings are persistent (exist in sysctl config)
-check "Sysctl settings are persisted in /etc/sysctl.d/" \
-  bash -c 'grep -rq "net.bridge.bridge-nf-call-iptables" /etc/sysctl.d/ 2>/dev/null || grep -q "net.bridge.bridge-nf-call-iptables" /etc/sysctl.conf 2>/dev/null'
+for i in "${!SYSCTL_KEYS[@]}"; do
+  check "sysctl ${SYSCTL_KEYS[$i]} = ${SYSCTL_VALUES[$i]}" \
+    check_sysctl "${SYSCTL_KEYS[$i]}" "${SYSCTL_VALUES[$i]}"
+done
+check "all selected sysctl values are persisted in $SYSCTL_FILE" persisted_settings_match
 
 echo ""
 echo "Results: $PASS/$TOTAL passed, $FAIL failed"
-[[ $FAIL -eq 0 ]] && echo "All checks passed!" || echo "Some checks failed."
-exit $FAIL
+if [[ $FAIL -eq 0 ]]; then
+  echo "All checks passed!"
+  exit 0
+fi
+echo "Some checks failed."
+exit 1

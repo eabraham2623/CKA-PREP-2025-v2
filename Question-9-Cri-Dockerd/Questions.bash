@@ -1,13 +1,8 @@
-# Question: Cri-Dockerd
-
-# Task:
-# Set up cri-dockerd
-# Install the debian package ~/cri-dockerd.deb using dpkg
-# Enable and start the cri-docker service
-# Configure these parameters:
-# 1. Set net.bridge.bridge-nf-call-iptables to 1
-# 2. Set net.ipv6.conf.all.forwarding to 1
-# 3. Set net.ipv4.ip_forward to 1
-# 4. Set net.netfilter.nf_conntrack_max to 131072
-
+# Question: cri-dockerd
+#
+# Run LabSetUp.bash to download the package and display the exact sysctl
+# parameters and values for the selected variant.
+# Install the package, enable and start the service, and persistently configure
+# and apply all four sysctl settings shown by setup.
+#
 # Video Link - https://youtu.be/ybzo1vXiqjU
