@@ -2,6 +2,17 @@
 # Validation script for Question 10 - Taints & Tolerations
 set -uo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+# shellcheck source=../scripts/lib/variant.sh
+source "$REPO_ROOT/scripts/lib/variant.sh"
+# shellcheck source=variants.bash
+source "$SCRIPT_DIR/variants.bash"
+
+VARIANT="$(cka_variant_read "$SCRIPT_DIR" "$VARIANT_COUNT")" || exit 1
+variant_config "$VARIANT" || exit 1
+
 PASS=0
 FAIL=0
 TOTAL=0
@@ -19,72 +30,72 @@ check() {
   fi
 }
 
-echo "============================================="
-echo " Validating Question 10: Taints & Tolerations"
-echo "============================================="
-
-# 1. node01 has the taint PERMISSION=granted:NoSchedule
-check "node01 has taint PERMISSION=granted:NoSchedule" \
-  bash -c '
-    kubectl describe node node01 2>/dev/null | grep -q "PERMISSION=granted:NoSchedule"
-  '
-
-# 2. A pod exists that tolerates the taint and is scheduled on node01
-check "A pod with toleration for PERMISSION=granted:NoSchedule exists" \
-  bash -c '
-    # Check all pods for the toleration
-    kubectl get pods -A -o json 2>/dev/null | python3 -c "
+node_has_expected_taint() {
+  kubectl get node "$NODE" -o json 2>/dev/null | python3 -c '
 import json, sys
 data = json.load(sys.stdin)
-for pod in data[\"items\"]:
-    ns = pod[\"metadata\"][\"namespace\"]
-    if ns.startswith(\"kube-\"):
+key, effect, value = sys.argv[1:4]
+for taint in data["spec"].get("taints", []):
+    if (taint.get("key") == key
+            and taint.get("effect") == effect
+            and taint.get("value", "") == value):
+        sys.exit(0)
+sys.exit(1)
+' "$TAINT_KEY" "$TAINT_EFFECT" "$TAINT_VALUE"
+}
+
+pod_is_running() {
+  [[ "$(kubectl get pod "$POD_NAME" -n "$POD_NAMESPACE" -o jsonpath='{.status.phase}' 2>/dev/null)" == "Running" ]]
+}
+
+pod_is_on_node() {
+  [[ "$(kubectl get pod "$POD_NAME" -n "$POD_NAMESPACE" -o jsonpath='{.spec.nodeName}' 2>/dev/null)" == "$NODE" ]]
+}
+
+pod_has_expected_toleration() {
+  kubectl get pod "$POD_NAME" -n "$POD_NAMESPACE" -o json 2>/dev/null | python3 -c '
+import json, sys
+data = json.load(sys.stdin)
+key, effect, value, operator = sys.argv[1:5]
+for toleration in data["spec"].get("tolerations", []):
+    if toleration.get("key") != key or toleration.get("effect", "") != effect:
         continue
-    tolerations = pod[\"spec\"].get(\"tolerations\", [])
-    for t in tolerations:
-        if t.get(\"key\") == \"PERMISSION\" and t.get(\"value\") == \"granted\" and t.get(\"effect\") == \"NoSchedule\":
+    tol_operator = toleration.get("operator", "Equal")
+    if operator == "Exists":
+        if tol_operator == "Exists" and toleration.get("value", "") == "":
             sys.exit(0)
+    elif tol_operator == "Equal" and toleration.get("value", "") == value:
+        sys.exit(0)
 sys.exit(1)
-"'
+' "$TAINT_KEY" "$TAINT_EFFECT" "$TAINT_VALUE" "$TOLERATION_OPERATOR"
+}
 
-# 3. The tolerating pod is Running
-check "Tolerating pod is in Running state" \
-  bash -c '
-    kubectl get pods -A -o json 2>/dev/null | python3 -c "
-import json, sys
-data = json.load(sys.stdin)
-for pod in data[\"items\"]:
-    ns = pod[\"metadata\"][\"namespace\"]
-    if ns.startswith(\"kube-\"):
-        continue
-    tolerations = pod[\"spec\"].get(\"tolerations\", [])
-    for t in tolerations:
-        if t.get(\"key\") == \"PERMISSION\" and t.get(\"value\") == \"granted\" and t.get(\"effect\") == \"NoSchedule\":
-            if pod[\"status\"][\"phase\"] == \"Running\":
-                sys.exit(0)
-sys.exit(1)
-"'
+echo "============================================================"
+echo " Validating Question 10: Taints & Tolerations"
+echo " Variant: $VARIANT/$VARIANT_COUNT"
+echo " Expected: $NODE has taint $TAINT_SPEC"
+echo "           pod $POD_NAME in namespace $POD_NAMESPACE is Running on $NODE"
+echo "           toleration uses operator $TOLERATION_OPERATOR"
+echo "============================================================"
 
-# 4. The tolerating pod is on node01
-check "Tolerating pod is scheduled on node01" \
-  bash -c '
-    kubectl get pods -A -o json 2>/dev/null | python3 -c "
-import json, sys
-data = json.load(sys.stdin)
-for pod in data[\"items\"]:
-    ns = pod[\"metadata\"][\"namespace\"]
-    if ns.startswith(\"kube-\"):
-        continue
-    tolerations = pod[\"spec\"].get(\"tolerations\", [])
-    for t in tolerations:
-        if t.get(\"key\") == \"PERMISSION\" and t.get(\"value\") == \"granted\" and t.get(\"effect\") == \"NoSchedule\":
-            node = pod[\"spec\"].get(\"nodeName\", \"\")
-            if \"node01\" in node:
-                sys.exit(0)
-sys.exit(1)
-"'
+# 1. The node has exactly the taint selected for this variant.
+check "node $NODE has taint $TAINT_SPEC" node_has_expected_taint
+
+# 2. The tolerating pod is Running.
+check "pod $POD_NAME in namespace $POD_NAMESPACE is Running" pod_is_running
+
+# 3. The tolerating pod is scheduled on node01.
+check "pod $POD_NAME is scheduled on $NODE" pod_is_on_node
+
+# 4. The pod's toleration matches the selected taint.
+check "pod $POD_NAME has a toleration for $TAINT_SPEC using operator $TOLERATION_OPERATOR" \
+  pod_has_expected_toleration
 
 echo ""
 echo "Results: $PASS/$TOTAL passed, $FAIL failed"
-[[ $FAIL -eq 0 ]] && echo "All checks passed!" || echo "Some checks failed."
-exit $FAIL
+if (( FAIL == 0 )); then
+  echo "All checks passed!"
+  exit 0
+fi
+echo "Some checks failed."
+exit 1

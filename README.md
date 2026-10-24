@@ -113,7 +113,7 @@ This opens VSCodium in the current directory, allowing you to browse and edit al
 | 7 | PriorityClass (3 variants) | https://youtu.be/CZzxGyF6OHc |
 | 8 | CNI & Network Policy | https://youtu.be/Uc04Ui4x3EM |
 | 9 | cri-dockerd (3 variants) | https://youtu.be/ybzo1vXiqjU |
-| 10 | Taints & Tolerations | https://youtu.be/oy6Mdqt1-jk |
+| 10 | Taints & Tolerations (3 variants) | https://youtu.be/oy6Mdqt1-jk |
 | 11 | Gateway API | https://youtu.be/G9zispvOCHE |
 | 12 | Ingress | https://youtu.be/sy9zABvDedQ |
 | 13 | Network Policy | https://youtu.be/rA8mXYTU0W8 |
