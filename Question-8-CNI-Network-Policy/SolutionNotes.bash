@@ -1,23 +1,27 @@
-# Follow the Tigera Calico documentation to install the operator and custom resources
-# See the Calico docs for the custom-resources.yaml file. https://docs.tigera.io/calico/latest/getting-started/kubernetes/quickstart
-# The custom-resources.yaml file is also here:
-# https://raw.githubusercontent.com/projectcalico/calico/v3.28.2/manifests/custom-resources.yaml
-kubectl create -f https://raw.githubusercontent.com/projectcalico/calico/v3.28.2/manifests/tigera-operator.yaml
-
-# Get the cluster CIDR from kubeadm (replace with the value from your cluster)
-kubectl -n kube-system get cm kubeadm-config -o yaml | grep -n "podSubnet"
-
-# Apply Calico custom resources with the same CIDR as the cluster
-# or Download the custom-resources.yaml file and edit the CIDR before applying
-wget https://raw.githubusercontent.com/projectcalico/calico/v3.28.2/manifests/custom-resources.yaml
-vim custom-resources.yaml
-# Change the CIDR in the ipPools section to match your cluster CIDR from above command, then apply
-kubectl apply -f custom-resources.yaml
-
-
-kubectl get tigerastatus
-kubectl get pods -n calico-system
-
-# Check that all pods are starting, especially CoreDNS
-kubectl get pods -A
-kubectl get pods -n kube-system | grep coredns
+# Follow the question printed by LabSetUp.bash. It shows the selected CNI
+# profile, exact release version, manifest source, and cluster pod subnet.
+#
+# Calico profile:
+#   kubectl create -f https://raw.githubusercontent.com/projectcalico/calico/<version>/manifests/tigera-operator.yaml
+#   wget https://raw.githubusercontent.com/projectcalico/calico/<version>/manifests/custom-resources.yaml
+#   vim custom-resources.yaml
+#   # Set spec.calicoNetwork.bgp: Disabled (the underlay does not exchange BGP).
+#   # Set spec.calicoNetwork.ipPools[0].cidr to the cluster pod subnet.
+#   kubectl apply -f custom-resources.yaml
+#   kubectl get tigerastatus
+#   kubectl get pods -n calico-system
+#
+# VXLAN overlay profile:
+#   Download the upstream manifest for the release shown by setup.
+#   Edit net-conf.json so Network matches the cluster pod subnet and the
+#   backend type remains vxlan.
+#   kubectl apply -f kube-flannel.yml
+#   kubectl get pods -n kube-flannel
+#   kubectl get daemonset -n kube-flannel
+#
+# Both profiles:
+#   kubectl get nodes
+#   kubectl get pods -n kube-system
+#
+# Cleanup removes the installed CNI and restores the pre-Q8 Cilium CNI,
+# including kube-proxy replacement.

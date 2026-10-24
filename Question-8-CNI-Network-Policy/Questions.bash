@@ -1,18 +1,14 @@
 # Question
-# Install and configure a CNI of your choice tht meets the specified requirements,
-# Choose one of the following:
+# LabSetUp.bash selects one of two CNI profiles for this run and prints the
+# complete question, including the exact version and pod subnet to use.
 
-# Flannel (v0.26.1) using the manifest kube-flannel.yml
-# (https://github.com/flannel-io/flannel/releases/download/v0.26.1/kube-flannel.yml)
+# Both profiles require:
+# 1. Pod-to-pod communication
+# 2. Installation from an upstream manifest
+# 3. The CNI network to match the cluster's pod subnet
 
-# or
-
-# Calico (v3.28.2) using the manifest tigera-operator.yaml
-# (https://raw.githubusercontent.com/projectcalico/calico/v3.28.2/manifests/tigera-operator.yaml)
-
-# The CNI you choose must
-# 1. Let pods communicate with each other
-# 2. Support network policy enforcement
-# 3. Install from manifest
+# One profile additionally requires NetworkPolicy enforcement. The other
+# requires a VXLAN overlay with no BGP requirement and does not test policy.
+# The setup output tells you which profile is active.
 
 #Video Link - https://youtu.be/Uc04Ui4x3EM
