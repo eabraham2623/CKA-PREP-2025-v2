@@ -2,6 +2,17 @@
 # Validation script for Question 14 - Storage Class
 set -uo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+# shellcheck source=../scripts/lib/variant.sh
+source "$REPO_ROOT/scripts/lib/variant.sh"
+# shellcheck source=variants.bash
+source "$SCRIPT_DIR/variants.bash"
+
+VARIANT="$(cka_variant_read "$SCRIPT_DIR" "$VARIANT_COUNT")" || exit 1
+variant_config "$VARIANT" || exit 1
+
 PASS=0
 FAIL=0
 TOTAL=0
@@ -19,62 +30,72 @@ check() {
   fi
 }
 
-echo "============================================"
-echo " Validating Question 14: Storage Class"
-echo "============================================"
+sc_field() {
+  kubectl get storageclass "$1" -o jsonpath="$2" 2>/dev/null
+}
 
-# 1. StorageClass local-storage exists
-check "StorageClass 'local-storage' exists" \
-  kubectl get storageclass local-storage
+is_not_default() {
+  local value
+  value="$(sc_field "$1" '{.metadata.annotations.storageclass\.kubernetes\.io/is-default-class}')"
+  [[ -n "$value" && "$value" != "true" ]]
+}
 
-# 2. Provisioner is rancher.io/local-path
-check "StorageClass provisioner is 'rancher.io/local-path'" \
-  bash -c '[[ "$(kubectl get storageclass local-storage -o jsonpath="{.provisioner}")" == "rancher.io/local-path" ]]'
-
-# 3. VolumeBindingMode is WaitForFirstConsumer
-check "VolumeBindingMode is 'WaitForFirstConsumer'" \
-  bash -c '[[ "$(kubectl get storageclass local-storage -o jsonpath="{.volumeBindingMode}")" == "WaitForFirstConsumer" ]]'
-
-# 4. local-storage is the default StorageClass
-check "StorageClass 'local-storage' is the default" \
-  bash -c '
-    IS_DEFAULT=$(kubectl get storageclass local-storage -o jsonpath="{.metadata.annotations.storageclass\.kubernetes\.io/is-default-class}" 2>/dev/null)
-    [[ "$IS_DEFAULT" == "true" ]]
-  '
-
-# 5. Only one default StorageClass exists (local-storage)
-check "Only one default StorageClass exists" \
-  bash -c '
-    DEFAULT_COUNT=$(kubectl get storageclass -o json 2>/dev/null | python3 -c "
+count_defaults() {
+  kubectl get storageclass -o json 2>/dev/null | python3 -c '
 import json, sys
 data = json.load(sys.stdin)
 count = 0
-for sc in data[\"items\"]:
-    annotations = sc[\"metadata\"].get(\"annotations\", {})
-    if annotations.get(\"storageclass.kubernetes.io/is-default-class\") == \"true\":
+for sc in data["items"]:
+    annotations = sc["metadata"].get("annotations", {})
+    if annotations.get("storageclass.kubernetes.io/is-default-class") == "true":
         count += 1
 print(count)
-")
-    [[ "$DEFAULT_COUNT" == "1" ]]
-  '
+'
+}
 
-# 6. No other StorageClass is marked as default
-check "No other StorageClass is marked default" \
-  bash -c '
-    kubectl get storageclass -o json 2>/dev/null | python3 -c "
-import json, sys
-data = json.load(sys.stdin)
-for sc in data[\"items\"]:
-    name = sc[\"metadata\"][\"name\"]
-    if name == \"local-storage\":
-        continue
-    annotations = sc[\"metadata\"].get(\"annotations\", {})
-    if annotations.get(\"storageclass.kubernetes.io/is-default-class\") == \"true\":
-        sys.exit(1)
-sys.exit(0)
-"'
+echo "============================================"
+echo " Validating Question 14: Storage Class"
+echo " Variant: $VARIANT/$VARIANT_COUNT"
+echo " Expected: StorageClass $SC_NAME"
+echo "           provisioner $PROVISIONER"
+echo "           volumeBindingMode $VOLUME_BINDING_MODE"
+echo "           $SC_NAME is the only default class"
+echo "============================================"
+
+# 1. The StorageClass selected for this variant exists.
+check "StorageClass '$SC_NAME' exists" \
+  kubectl get storageclass "$SC_NAME"
+
+# 2. Its provisioner matches the variant exactly.
+check "StorageClass '$SC_NAME' provisioner is '$PROVISIONER'" \
+  test "$(sc_field "$SC_NAME" '{.provisioner}')" = "$PROVISIONER"
+
+# 3. Its volume binding mode matches the task.
+check "VolumeBindingMode is '$VOLUME_BINDING_MODE'" \
+  test "$(sc_field "$SC_NAME" '{.volumeBindingMode}')" = "$VOLUME_BINDING_MODE"
+
+# 4. The new class is the default.
+check "StorageClass '$SC_NAME' is the default" \
+  test "$(sc_field "$SC_NAME" '{.metadata.annotations.storageclass\.kubernetes\.io/is-default-class}')" = "true"
+
+# 5. The pre-existing class must still be present.
+check "Existing StorageClass '$EXISTING_SC' still exists" \
+  kubectl get storageclass "$EXISTING_SC"
+
+# 6. The pre-existing class must no longer be the default.
+check "Existing StorageClass '$EXISTING_SC' is not default" \
+  is_not_default "$EXISTING_SC"
+
+# 7. Exactly one StorageClass in the cluster is marked default.
+check "Only one default StorageClass exists" \
+  test "$(count_defaults)" = "1"
 
 echo ""
 echo "Results: $PASS/$TOTAL passed, $FAIL failed"
-[[ $FAIL -eq 0 ]] && echo "All checks passed!" || echo "Some checks failed."
-exit $FAIL
+if (( FAIL == 0 )); then
+  echo "All checks passed!"
+  exit 0
+else
+  echo "Some checks failed."
+  exit 1
+fi
