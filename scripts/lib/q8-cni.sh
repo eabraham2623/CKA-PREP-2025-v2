@@ -79,22 +79,133 @@ cka_q8_run_host_script() {
 }
 
 cka_q8_remove_other_cni_host() {
-  local script
+  local purge_cilium=0 script
+
+  case "${1:-}" in
+    "") ;;
+    --with-cilium) purge_cilium=1 ;;
+    *)
+      echo "Error: cka_q8_remove_other_cni_host: unknown option '$1'" >&2
+      return 1
+      ;;
+  esac
+
   read -r -d '' script <<'EOF' || true
 #!/bin/bash
+# Remove host-level CNI artifacts left by Calico, Flannel, or Canal.
+# Cilium's netfilter state is only removed with --with-cilium, because it is
+# the CNI this lab restores and it must keep working when it is still active.
 set -u
+PURGE_CILIUM=__PURGE_CILIUM__
+
+purge_table() {
+  local cmd="$1" table="$2"
+  local chain line target remove
+  local -a targets=()
+
+  while IFS= read -r chain; do
+    [[ -n "$chain" ]] || continue
+    case "$chain" in
+      cali*|FLANNEL*) targets+=("$chain") ;;
+      CILIUM*) [[ "$PURGE_CILIUM" == 1 ]] && targets+=("$chain") ;;
+    esac
+  done < <("$cmd" -t "$table" -S 2>/dev/null | awk '/^-N / {print $2}')
+
+  ((${#targets[@]} == 0)) && return 0
+
+  # Remove references to the chains first: a chain cannot be deleted while a
+  # rule still jumps to it. This also drops any CNI rule that was inserted
+  # straight into a built-in chain.
+  while IFS= read -r line; do
+    [[ "$line" == "-A "* ]] || continue
+
+    remove=0
+    case "$line" in
+      *'--comment "cali:'*) remove=1 ;;
+      *'--comment "cilium:'*)
+        [[ "$PURGE_CILIUM" == 1 ]] && remove=1
+        ;;
+    esac
+    if [[ "$remove" == 0 ]]; then
+      target="${line##* }"
+      [[ " ${targets[*]} " == *" $target "* ]] && remove=1
+    fi
+    [[ "$remove" == 1 ]] || continue
+
+    # The rule text comes from iptables-save, which is the canonical form
+    # accepted by -D. eval keeps quoted comments (with spaces) intact.
+    eval "$cmd -t '$table' -D ${line#-A }" 2>/dev/null || true
+  done < <("$cmd"-save -t "$table" 2>/dev/null)
+
+  for chain in "${targets[@]}"; do
+    "$cmd" -t "$table" -F "$chain" 2>/dev/null || true
+  done
+  for chain in "${targets[@]}"; do
+    "$cmd" -t "$table" -X "$chain" 2>/dev/null || true
+  done
+}
+
+cni_netfilter_leftovers() {
+  local pattern="$1" cmd table
+  for cmd in iptables ip6tables; do
+    command -v "$cmd" >/dev/null 2>&1 || continue
+    for table in filter nat mangle raw; do
+      "$cmd" -t "$table" -S 2>/dev/null | grep -E "$pattern" || true
+    done
+  done
+}
+
 find /etc/cni/net.d -maxdepth 1 -type f \
   \( -name '*calico*' -o -name '*canal*' -o -name '*flannel*' \) \
   ! -name '*.cilium_bak' -delete 2>/dev/null || true
 rm -f /opt/cni/bin/calico /opt/cni/bin/calico-ipam /opt/cni/bin/flannel
 rm -rf /run/flannel /var/run/calico /var/lib/calico
-for iface in vxlan.calico flannel.1 tunl0; do
+
+# Flannel delegates to the bridge and host-local plugins, whose state is
+# keyed by network name (cni0) and must not survive a CNI change.
+rm -rf /var/lib/cni/networks/cni0 /var/lib/cni/networks/flannel
+
+for iface in vxlan.calico flannel.1 tunl0 cni0; do
   ip link delete "$iface" 2>/dev/null || true
 done
 for link in $(ip -o link show 2>/dev/null | awk -F': ' '{print $2}' | sed 's/@.*//' | grep '^cali' || true); do
   ip link delete "$link" 2>/dev/null || true
 done
+
+for cmd in iptables ip6tables; do
+  command -v "$cmd" >/dev/null 2>&1 || continue
+  for table in filter nat mangle raw; do
+    purge_table "$cmd" "$table"
+  done
+done
+
+# Calico keeps its address sets in ipsets. The CLI is optional on these
+# images, so only clean them up when it is available.
+if command -v ipset >/dev/null 2>&1; then
+  sets="$(ipset list -n 2>/dev/null | grep -E '^cali' || true)"
+  if [[ "$PURGE_CILIUM" == 1 ]]; then
+    sets="$sets
+$(ipset list -n 2>/dev/null | grep -E '^cilium' || true)"
+  fi
+  for set in $sets; do
+    ipset destroy "$set" 2>/dev/null || true
+  done
+fi
+
+status=0
+pattern='cali|FLANNEL'
+[[ "$PURGE_CILIUM" == 1 ]] && pattern='cali|FLANNEL|CILIUM'
+remaining="$(cni_netfilter_leftovers "$pattern")"
+if [[ -n "$remaining" ]]; then
+  echo "Warning: leftover CNI netfilter state:" >&2
+  printf '%s\n' "$remaining" | head -10 >&2
+  status=1
+fi
+
+exit "$status"
 EOF
+
+  script="${script/__PURGE_CILIUM__/$purge_cilium}"
   cka_q8_run_host_script "$script"
 }
 
@@ -209,6 +320,14 @@ cka_q8_cleanup_calico() {
   kubectl delete daemonset calico-node -n kube-system --ignore-not-found --wait=false >/dev/null 2>&1 || true
   kubectl delete deployment calico-kube-controllers -n calico-system --ignore-not-found --wait=false >/dev/null 2>&1 || true
   kubectl delete deployment calico-kube-controllers -n kube-system --ignore-not-found --wait=false >/dev/null 2>&1 || true
+
+  # Calico writes node annotations that outlive its workloads.
+  kubectl annotate nodes --all \
+    projectcalico.org/IPv4Address- \
+    projectcalico.org/IPv6Address- \
+    projectcalico.org/IPv4IPIPTunnelAddr- \
+    projectcalico.org/IPv4VXLANTunnelAddr- \
+    --overwrite >/dev/null 2>&1 || true
 
   # The Tigera operator puts a tigera.io/cni-protector finalizer on its
   # service accounts. Removing the operator before it clears those leaves

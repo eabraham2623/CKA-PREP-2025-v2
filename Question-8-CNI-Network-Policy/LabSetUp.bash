@@ -50,7 +50,8 @@ echo
 echo "Removing any CNI left by an earlier attempt..."
 cka_q8_cleanup_other_cnis || echo "  Warning: some Calico/Flannel/Canal resources could not be removed."
 cka_q8_stop_cilium
-cka_q8_remove_other_cni_host || echo "  Warning: host CNI cleanup was incomplete on one or more nodes."
+# Cilium has been stopped, so its host netfilter state is removed as well.
+cka_q8_remove_other_cni_host --with-cilium || echo "  Warning: host CNI cleanup was incomplete on one or more nodes."
 cka_q8_remove_cilium_host || echo "  Warning: Cilium host cleanup was incomplete on one or more nodes."
 
 echo "Restarting CoreDNS so it is recreated after the new CNI is installed..."

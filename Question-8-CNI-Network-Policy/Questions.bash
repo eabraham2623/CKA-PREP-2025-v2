@@ -3,7 +3,8 @@
 # complete question, including the exact version and pod subnet to use.
 
 # Both profiles require:
-# 1. Pod-to-pod communication
+# 1. A working pod network: the CNI is configured and Ready on every node.
+#    Cross-node pod traffic is not exercised in this environment.
 # 2. Installation from an upstream manifest
 # 3. The CNI network to match the cluster's pod subnet
 

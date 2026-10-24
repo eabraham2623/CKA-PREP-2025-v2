@@ -18,7 +18,14 @@ source "$REPO_ROOT/scripts/lib/q8-cni.sh"
 echo "Cleaning up Question 8: CNI & Network Policy..."
 RC=0
 NEEDS_REFRESH=0
+CILIUM_ACTIVE=0
 
+# Decide this before removing anything: a healthy Cilium is kept as-is, so
+# its netfilter chains must not be touched. Otherwise Cilium is reinstalled
+# from the snapshot and any stale Cilium netfilter state must go first.
+if cka_q8_cilium_healthy; then
+  CILIUM_ACTIVE=1
+fi
 if cka_q8_snapshot_exists; then
   NEEDS_REFRESH=1
 fi
@@ -28,9 +35,13 @@ fi
 
 echo "Removing Calico, Flannel, and Canal resources..."
 cka_q8_cleanup_other_cnis || RC=1
-cka_q8_remove_other_cni_host || RC=1
+if (( CILIUM_ACTIVE == 1 )); then
+  cka_q8_remove_other_cni_host || RC=1
+else
+  cka_q8_remove_other_cni_host --with-cilium || RC=1
+fi
 
-if cka_q8_cilium_healthy; then
+if (( CILIUM_ACTIVE == 1 )); then
   echo "Cilium is already active; no reinstall needed."
   if (( NEEDS_REFRESH == 1 )); then
     cka_q8_wait_for_ready || RC=1
