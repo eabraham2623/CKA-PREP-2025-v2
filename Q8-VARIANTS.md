@@ -4,8 +4,7 @@ Last updated: 2026-10-24
 
 Branch: `variations_temp`
 
-Status: proposed. `Question-8-CNI-Network-Policy/variants.bash` has not been
-changed yet.
+Status: implemented in `Question-8-CNI-Network-Policy/variants.bash`.
 
 ## Goal
 
@@ -23,7 +22,7 @@ Decisions taken:
 - Item 3 is qualified with the variant's release so the requirement list
   points to exactly one of the two listed CNIs.
 
-## Proposed prompt text
+## Prompt text
 
 ### Variant 1
 
@@ -96,20 +95,21 @@ Video Link - https://youtu.be/Uc04Ui4x3EM
 
 ## Code changes
 
-Only `Question-8-CNI-Network-Policy/variants.bash` needs changing:
+Only `Question-8-CNI-Network-Policy/variants.bash` was changed:
 
-1. Add fixed constants for both CNI options so the shared list is not
+1. Added fixed constants for both CNI options so the shared list is not
    duplicated:
    - `FLANNEL_VERSION`, `FLANNEL_MANIFEST_NAME`, `FLANNEL_MANIFEST_URL`
-   - `CALICO_VERSION`, `CALICO_MANIFEST_NAME`, `CALICO_MANIFEST_URL`
-2. Point `variant_config` at those constants instead of repeating the URLs
+   - `CALICO_VERSION`, `CALICO_MANIFEST_NAME`, `CALICO_MANIFEST_URL`,
+     `CALICO_EXTRA_MANIFEST_URL`
+2. Pointed `variant_config` at those constants instead of repeating the URLs
    and versions.
-3. Rewrite `variant_question` with one shared options block, then a small
+3. Rewrote `variant_question` with one shared options block, then a small
    `case` that selects:
    - the requirement line (policy enforcement vs VXLAN/no BGP),
    - the release qualifier for item 3,
    - the run-details edits.
-4. Replace the header comment that says variant 2 must not name the CNI; it
+4. Replaced the header comment that said variant 2 must not name the CNI; it
    is no longer true now that both options are printed.
 
 No changes needed to:
@@ -122,26 +122,25 @@ No changes needed to:
 
 ## Verification
 
-Non-destructive:
+Non-destructive (completed):
 
-- `bash -n` on `variants.bash`, `LabSetUp.bash`, and `validate.bash`.
-- Render both prompts with a dummy `POD_SUBNET` and confirm:
-  - `Variant 1/2` / `Variant 2/2`
-  - both CNI options appear
-  - variant 1 shows policy + BGP-disabled run detail
-  - variant 2 shows VXLAN/no-BGP + `net-conf.json` run detail
-  - the original wording, fixed `that`, and video link are present.
+- `bash -n` on `variants.bash`, `LabSetUp.bash`, and `validate.bash`: pass.
+- Rendered both prompts with `POD_SUBNET=192.168.0.0/16`; both outputs match
+  the proposed text below and both invalid-variant calls return `rc=1`.
+- Variant config values are unchanged: Calico `v3.28.2` with policy required;
+  Flannel `v0.26.1` with policy not required.
 
-Full contract check, only against a disposable cluster:
+Full contract check (not run in this environment; destructive and requires a
+disposable cluster):
 
 - `scripts/cleanup-question.sh 8`
 - For each variant: `scripts/run-question.sh 8 <v>`, confirm the printed
   text, validate before solving (expected failure), install the solution,
   validate after (expected 22/22), cleanup.
 
-## Open decision
+## Resolved decision
 
 Item 3 is qualified with the release so the "must" list uniquely selects the
-correct CNI even though both options are printed. If item 3 must stay exactly
-`3. Install from manifest`, the run-details note still points to the right
-manifest, but the requirement list alone will not rule out the other CNI.
+correct CNI even though both options are printed. The alternative of leaving
+item 3 as exactly `3. Install from manifest` was not used because the
+requirement list alone would not rule out the other CNI.

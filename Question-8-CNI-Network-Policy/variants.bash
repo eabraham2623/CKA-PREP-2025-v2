@@ -6,11 +6,20 @@
 # pod subnet is derived from the live kubeadm configuration by setup and
 # validation, not hard-coded in the presets.
 #
-# Variant 2 is intentionally described only by its VXLAN/no-BGP profile and
-# release version. Setup output must not name the CNI so the learner has to
-# identify it from the clues.
+# Both presets print the same upstream Flannel and Calico options. The
+# requirement list, release qualifier, and run details are selected from the
+# active variant so the printed task points at the CNI that setup expects.
 
 VARIANT_COUNT=2
+
+# Fixed upstream options shown in the printed question.
+FLANNEL_VERSION="v0.26.1"
+FLANNEL_MANIFEST_NAME="kube-flannel.yml"
+FLANNEL_MANIFEST_URL="https://github.com/flannel-io/flannel/releases/download/v0.26.1/kube-flannel.yml"
+CALICO_VERSION="v3.28.2"
+CALICO_MANIFEST_NAME="tigera-operator.yaml"
+CALICO_MANIFEST_URL="https://raw.githubusercontent.com/projectcalico/calico/v3.28.2/manifests/tigera-operator.yaml"
+CALICO_EXTRA_MANIFEST_URL="https://raw.githubusercontent.com/projectcalico/calico/v3.28.2/manifests/custom-resources.yaml"
 
 variant_config() {
   local variant="${1:-}"
@@ -19,9 +28,9 @@ variant_config() {
     1)
       CNI_PROFILE="calico"
       CNI_DISPLAY="Calico"
-      CNI_VERSION="v3.28.2"
-      CNI_MANIFEST_URL="https://raw.githubusercontent.com/projectcalico/calico/v3.28.2/manifests/tigera-operator.yaml"
-      CNI_EXTRA_MANIFEST_URL="https://raw.githubusercontent.com/projectcalico/calico/v3.28.2/manifests/custom-resources.yaml"
+      CNI_VERSION="$CALICO_VERSION"
+      CNI_MANIFEST_URL="$CALICO_MANIFEST_URL"
+      CNI_EXTRA_MANIFEST_URL="$CALICO_EXTRA_MANIFEST_URL"
       CNI_NAMESPACE="calico-system"
       CNI_DAEMONSET="calico-node"
       CNI_DEPLOYMENT="calico-kube-controllers"
@@ -32,8 +41,8 @@ variant_config() {
     2)
       CNI_PROFILE="vxlan-overlay"
       CNI_DISPLAY="VXLAN overlay"
-      CNI_VERSION="v0.26.1"
-      CNI_MANIFEST_URL="https://github.com/flannel-io/flannel/releases/download/v0.26.1/kube-flannel.yml"
+      CNI_VERSION="$FLANNEL_VERSION"
+      CNI_MANIFEST_URL="$FLANNEL_MANIFEST_URL"
       CNI_EXTRA_MANIFEST_URL=""
       CNI_NAMESPACE="kube-flannel"
       CNI_DAEMONSET="kube-flannel-ds"
@@ -51,66 +60,57 @@ variant_config() {
 
 variant_question() {
   local variant="${1:-?}"
+  local subnet="${POD_SUBNET:-<cluster-pod-subnet>}"
+  local variant_requirement manifest_requirement run_details
 
   case "$variant" in
     1)
-      cat <<EOF
-============================================================
- Question 8: CNI & Network Policy (Variant $variant/$VARIANT_COUNT)
-============================================================
-
-The cluster has no working CNI and pods cannot communicate.
-
-Install Calico $CNI_VERSION with the Tigera operator:
-
-1. Apply the $CNI_VERSION tigera-operator.yaml manifest.
-2. Download the $CNI_VERSION custom-resources.yaml, then set:
-   - calicoNetwork.bgp: Disabled (this cluster's underlay does not
-     exchange BGP)
-   - the IP pool CIDR to the cluster's pod subnet, $POD_SUBNET
-   Apply the edited manifest.
-3. Verify the Calico pods are running, all nodes are Ready, and the
-   CoreDNS pods are Running.
-4. Confirm the CNI supports NetworkPolicy enforcement.
-
-Do not install any other CNI alongside Calico.
-
-Video Link - https://youtu.be/Uc04Ui4x3EM
-============================================================
-EOF
+      variant_requirement="2. Support network policy enforcement"
+      manifest_requirement="3. Install from manifest (release $CALICO_VERSION)"
+      run_details="- In custom-resources.yaml, set the IP pool CIDR to $subnet and
+  set spec.calicoNetwork.bgp to Disabled; this cluster's underlay does
+  not exchange BGP."
       ;;
     2)
-      cat <<EOF
-============================================================
- Question 8: CNI & Network Policy (Variant $variant/$VARIANT_COUNT)
-============================================================
-
-The cluster has no working CNI and pods cannot communicate.
-
-Install the CNI that matches this profile:
-
-1. Pod-to-pod traffic uses a VXLAN overlay (backend type "vxlan")
-   and does not require BGP.
-2. The CNI is installed from the upstream manifest published with
-   release $CNI_VERSION.
-3. The manifest's default pod network is 10.244.0.0/16. Change the
-   network configuration to the cluster's pod subnet, $POD_SUBNET,
-   before applying the manifest.
-4. All nodes must become Ready and the CoreDNS pods must be Running.
-
-This profile does not require NetworkPolicy enforcement. The Calico
-profile is the policy-enforcing preset; Question 13 covers policy
-separately.
-
-Do not install any other CNI alongside it.
-
-Video Link - https://youtu.be/Uc04Ui4x3EM
-============================================================
-EOF
+      variant_requirement='2. Use a VXLAN overlay (backend type "vxlan") with no BGP requirement'
+      manifest_requirement="3. Install from manifest (release $FLANNEL_VERSION)"
+      run_details="- In $FLANNEL_MANIFEST_NAME, change net-conf.json Network from 10.244.0.0/16
+  to $subnet and keep the backend type \"vxlan\"."
       ;;
     *)
       echo "Error: unknown variant '$variant' (expected 1..$VARIANT_COUNT)" >&2
       return 1
       ;;
   esac
+
+  cat <<EOF
+============================================================
+ Question 8: CNI & Network Policy (Variant $variant/$VARIANT_COUNT)
+============================================================
+
+Install and configure a CNI of your choice that meets the specified requirements,
+Choose one of the following:
+
+Flannel ($FLANNEL_VERSION) using the manifest $FLANNEL_MANIFEST_NAME
+($FLANNEL_MANIFEST_URL)
+
+or
+
+Calico ($CALICO_VERSION) using the manifest $CALICO_MANIFEST_NAME
+($CALICO_MANIFEST_URL)
+
+The CNI you choose must
+1. Let pods communicate with each other
+$variant_requirement
+$manifest_requirement
+
+Run details:
+- Cluster pod subnet: $subnet
+$run_details
+
+Verify all nodes are Ready and the CoreDNS pods are Running.
+
+Video Link - https://youtu.be/Uc04Ui4x3EM
+============================================================
+EOF
 }
