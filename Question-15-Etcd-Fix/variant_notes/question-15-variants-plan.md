@@ -1,6 +1,6 @@
 # Question 15 — Proposed Variants from the Deep-Research Notes
 
-Status: **proposed plan — not implemented**
+Status: **partially implemented and tested — see the implementation handoff in section 12**
 
 Source reviewed: `Question-15-Etcd-Fix/variant_notes/deep-research-report.md`
 
@@ -249,3 +249,129 @@ Also test:
 ## 11. Recommendation
 
 Implement the five-variant progression as described, keep Variant 5 as the capstone, and document the intentional departure from the equal-difficulty rule. Before writing the scripts, test the static-Pod resource behavior on the actual 1-core control-plane node: if a `1999m` scheduler request does not produce a Pending static Pod, use `4` CPU for the scheduler and `19Mi` for the controller, or choose another resource value that reliably produces the reported symptom.
+
+## 12. Implementation handoff (2026-10-25)
+
+Status: **implemented, but not fully re-verified from a clean state. Continue with the atomic-write fix and the remaining test matrix before declaring it done.**
+
+### 12.1 Files added or changed
+
+| File | Status |
+|---|---|
+| `Question-15-Etcd-Fix/q15-lib.bash` | New. Shared baseline, health, manifest-edit, CoreDNS, and status helpers. |
+| `Question-15-Etcd-Fix/variants.bash` | New. Five presets, summaries, and full question text. |
+| `Question-15-Etcd-Fix/LabSetUp.bash` | Rewritten. Baseline restore/snapshot, fault injection, symptom wait, question output. |
+| `Question-15-Etcd-Fix/validate.bash` | Rewritten. Variant-aware validation; fails closed without recorded state. |
+| `Question-15-Etcd-Fix/cleanup.bash` | Rewritten. Restores baseline, waits for health, removes baseline and variant state. |
+| `Question-15-Etcd-Fix/Questions.bash` | Rewritten as generic variant-aware study text. |
+| `Question-15-Etcd-Fix/SolutionNotes.bash` | Rewritten as a generic control-plane troubleshooting runbook. |
+| `README.md` | **Not yet updated** (Q15 still says no variants). |
+| `AGENTS.md` | **Not yet updated** (line 49 still describes Q15 cleanup as a no-op). |
+| This plan file | Updated with implementation/test status. |
+
+The plan file is tracked at `HEAD`. The code changes are **uncommitted**. `q15-lib.bash` and `variants.bash` are still untracked. No `git commit` or `git push` was run.
+
+### 12.2 Implemented variant behavior
+
+| Variant | Actual injected fault(s) |
+|---|---|
+| 1 | `--etcd-servers=https://127.0.0.1:2380` |
+| 2 | `--etcd-servers=https://192.0.2.100:2379` |
+| 3 | Scheduler `requests.cpu: 1999m` |
+| 4 | Controller-manager `requests.cpu: 4` |
+| 5 | Etcd peer port + scheduler `1999m` + controller `limits.memory: 19Mi` + CoreDNS `kubernetes wrong.local` |
+
+### 12.3 Deliberate divergences from the original proposal
+
+1. **CoreDNS fault changed from malformed Corefile to wrong cluster zone.**
+   - The original malformed Corefile (missing final `}`) was tolerated by CoreDNS's `reload` plugin: the pods stayed Running and kept serving the old config, so DNS still worked.
+   - The implemented fault rewrites `kubernetes cluster.local` to `kubernetes wrong.local`. CoreDNS stays Running, but `kubernetes.default.svc.cluster.local` stops resolving. This produces a reliable DNS failure that the validator can detect.
+   - `q15_corefile_is_valid` now requires the exact `cluster.local` zone and rejects `wrong.local`.
+
+2. **Validation checks static containers through `crictl`, not just mirror Pods.**
+   - After the API was down and recovered, a stale mirror Pod showed `kube-scheduler` as `Running` even though no scheduler container existed.
+   - `q15_container_running` uses `sudo crictl ps --name '^<component>$' --state Running`, and both health checks and validation now use it.
+
+3. **Baseline restoration waits for the CoreDNS rollout.**
+   - `kubectl rollout restart deployment/coredns` returns before the old pods are replaced. Cleanup could finish while CoreDNS was still rolling, and an immediate setup could see a temporarily unhealthy cluster.
+   - `q15_restore_baseline` now runs `kubectl rollout status deployment/coredns --timeout=...` before `q15_wait_cluster_healthy`.
+
+### 12.4 Test results so far
+
+Individual/manual tests:
+
+- Variant 1: setup, validation-before-fail, fix, validation 14/14, cleanup pass.
+- Variant 2: same, 14/14 after fix, cleanup pass.
+- Variant 3: same, 14/14 after fix, cleanup pass.
+- Variant 4: same, 14/14 after fix, cleanup pass.
+- Variant 5: setup, validation-before-fail (1/14 or 2/14 depending on run), manual fix after waiting for the API, validation 14/14, cleanup pass.
+
+Matrix run 1 (`/tmp/opencode/q15-matrix.sh`, first version):
+
+- Variants 1–4: setup, validation-before-fail, solution, validation-pass, cleanup all passed.
+- Variant 5: failed only because the test harness edited scheduler/controller/CoreDNS while the API was still down after the etcd fix. The product code was not at fault.
+- Cleanup still passed and restored the cluster.
+- Fix applied to the harness: wait for `q15_api_ready` after repairing the etcd endpoint before applying the remaining fixes.
+
+Matrix run 2 (second version):
+
+- Variant 1: setup, fail-before, solve, 14/14, cleanup pass.
+- Variant 2: setup, fail-before, solve, 14/14, cleanup pass.
+- Variant 3: setup and fail-before completed; the session was interrupted before the solution/after/cleanup steps.
+- The interrupted run left variant 3 recorded and the scheduler in a 5-minute CrashLoopBackOff. The cluster was manually cleaned up afterwards. Cleanup returned 0 and the cluster is healthy again.
+
+Useful logs and harness:
+
+- Test harness: `/tmp/opencode/q15-matrix.sh`
+- Logs: `/tmp/opencode/q15-matrix/`
+- Last verified cluster state at handoff: both nodes `Ready`, all control-plane containers Running, no `.cka-state`, no pristine baseline. The cluster is healthy.
+
+### 12.5 Known bug to fix first: non-atomic manifest writes
+
+`q15_set_container_resources` uses Python `open(path, 'w')`, which truncates the static Pod manifest before writing. Kubelet can observe the empty/partial file. This happened during the interrupted run:
+
+```text
+can't process config file "/etc/kubernetes/manifests/kube-scheduler.yaml":
+couldn't parse as pod(Object 'Kind' is missing in 'null')
+```
+
+The result was a kubelet parse error and a 5-minute `CrashLoopBackOff` before the scheduler restarted. It eventually recovered, but the edit is not safe.
+
+Fix:
+
+1. In `q15_set_container_resources`, write the new YAML to a temporary file in `/etc/kubernetes/manifests` (same filesystem).
+2. Preserve ownership/mode.
+3. Atomically replace the target with `os.replace(temp, path)` (Python) or `sudo mv temp target`.
+4. Do the same audit for any other direct writes to static manifests.
+5. Re-test all five variants after the fix.
+
+`q15_set_etcd_servers` uses `sed -i`, which uses a temporary file and rename on GNU sed, so it did not show this failure. It should still be included in the atomic-write review.
+
+### 12.6 Remaining test work
+
+The following were **not** completed after the latest changes:
+
+- Full clean matrix after the atomic-write fix: cleanup → setup → fail-before → solve → pass → cleanup for all five variants.
+- Re-run setup for the same variant and for a different variant without cleanup, to prove baseline restore and fault isolation.
+- No-argument setup records a valid random variant.
+- Invalid variant arguments `0`, `6`, and non-numeric fail.
+- Validation without recorded state fails.
+- Tampered recorded state for another variant fails.
+- `bash -n` on all touched scripts after the final edits.
+- Confirm cleanup leaves both nodes Ready, all control-plane containers Running, CoreDNS available, and cluster DNS resolving.
+- Verify `scripts/validate-question.sh all` still behaves correctly with Q15 included (the wrapper loops 1..17, so Q15 is in scope).
+
+### 12.7 Remaining documentation work
+
+- `README.md`: change the Q15 row to `Etcd Fix (5 variants)` and document `scripts/run-question.sh 15 [variant]`.
+- `AGENTS.md`: update the Q15 hazard/cleanup entry. It currently says cleanup intentionally makes no change; the implemented cleanup restores the baseline and clears state.
+- Record the intentional departure from the repository's equal-difficulty and 2–4-preset guidance.
+- Update sections 5 and 10 of this plan so they describe the implemented `wrong.local` CoreDNS fault rather than the original malformed-Corefile idea.
+
+### 12.8 Open design questions for the next session
+
+1. **Variant 5 controller fault:** `19Mi` is close to the controller's live usage. It can run for a while and then OOM/restart; in one run it was Running, in another it was CrashLoopBackOff. If that intermittent behavior is undesirable, either add the controller CPU `4` fault to Variant 5 as well (making it visible immediately) or move the `19Mi` fault into Variant 4 and use CPU `4` in Variant 5.
+2. **Equal difficulty:** Variants 1–4 are single-fault drills; Variant 5 is a multi-fault capstone. This is a progression, not equal difficulty. Confirm that is acceptable before finalizing `AGENTS.md`.
+3. **CoreDNS evidence strength:** the `wrong.local` zone is a training substitute, not the exact exam fault. Keep that wording explicit in learner-facing text.
+4. **Question disclosure:** current questions describe symptoms and migration context but do not reveal the exact bad value. This is more exam-like than the original Q15 wording, but it is a change from the original lab.
+

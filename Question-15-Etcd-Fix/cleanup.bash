@@ -1,12 +1,31 @@
 #!/bin/bash
-# Cleanup script for Question 15 - Etcd Fix
+# Cleanup script for Question 15 - Etcd Fix variants.
 set -uo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+# shellcheck source=../scripts/lib/variant.sh
+source "$REPO_ROOT/scripts/lib/variant.sh"
+# shellcheck source=q15-lib.bash
+source "$SCRIPT_DIR/q15-lib.bash"
+
 echo "Cleaning up Question 15: Etcd Fix..."
 
-# Re-introduce the broken etcd port to reset the lab for re-practice
-# (only do this if you want to re-run the lab from scratch)
-echo "NOTE: This question modifies /etc/kubernetes/manifests/kube-apiserver.yaml"
-echo "To reset for re-practice, re-run: scripts/run-question.sh 15"
-echo "To leave the cluster healthy, no action is taken."
+if [[ ! -s "$Q15_BASELINE_READY" ]]; then
+  echo "No pristine Q15 baseline is recorded; nothing can be restored automatically." >&2
+  echo "If the control plane is broken, repair it manually or start a fresh disposable cluster." >&2
+  cka_variant_clear "$SCRIPT_DIR"
+  exit 1
+fi
 
-echo "[OK] Question 15 cleanup complete (no destructive action taken)"
+if ! q15_restore_baseline; then
+  echo "ERROR: failed to restore the pristine control-plane baseline." >&2
+  echo "The baseline was kept in $Q15_BASELINE_DIR for a retry." >&2
+  exit 1
+fi
+
+rm -rf "$Q15_BASELINE_DIR"
+cka_variant_clear "$SCRIPT_DIR"
+
+echo "[OK] Question 15 cleanup complete; control plane restored to its pre-lab state."
