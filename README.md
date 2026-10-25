@@ -53,6 +53,8 @@ scripts/run-question.sh 1 2
 
 Validation reads the variant recorded by setup, so run setup before validating. Cleanup clears the recorded variant.
 
+Question 15 is a control-plane incident lab and an intentional exception to the equal-difficulty rule: its five presets form a progression from single-fault drills (etcd endpoint, scheduler and controller-manager resources) to a combined multi-fault capstone. The CoreDNS wrong-zone fault in the capstone is a training substitute, not a reported exam value. Setup snapshots a pristine control-plane baseline under `.cka-state/q15-baseline/`, and cleanup restores it. Run these presets only on a disposable cluster.
+
 ---
 
 ## Validating Your Solutions
@@ -118,7 +120,7 @@ This opens VSCodium in the current directory, allowing you to browse and edit al
 | 12 | Ingress (3 variants) | https://youtu.be/sy9zABvDedQ |
 | 13 | Network Policy (3 variants) | https://youtu.be/rA8mXYTU0W8 |
 | 14 | Storage Class (3 variants) | https://youtu.be/di7X7OHn2fc |
-| 15 | Etcd Fix | https://youtu.be/IL448T6r8H4 |
+| 15 | Etcd Fix (5 variants — control-plane faults) | https://youtu.be/IL448T6r8H4 |
 | 16 | NodePort Service | — |
 | 17 | TLS Config | — |
 | 18 | kubectl patch — Resource Limits | — |
