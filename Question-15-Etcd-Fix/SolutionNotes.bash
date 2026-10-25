@@ -7,7 +7,7 @@
 kubectl get nodes
 kubectl get --raw='/readyz'
 sudo crictl ps -a | grep -E 'kube-apiserver|etcd|kube-scheduler|kube-controller-manager'
-sudo crictl logs <container-id>
+sudo crictl logs "<container-id>"
 sudo journalctl -u kubelet -n 100 --no-pager
 
 # 2. If the API is down, inspect the static Pod manifests.
@@ -42,7 +42,8 @@ sudo vi /etc/kubernetes/manifests/kube-controller-manager.yaml
 kubectl -n kube-system get pods -l k8s-app=kube-dns
 kubectl -n kube-system logs -l k8s-app=kube-dns
 kubectl -n kube-system get configmap coredns -o yaml
-# Repair a malformed Corefile, then restart the Deployment:
+# Repair the Corefile (the kubernetes plugin must serve the cluster.local
+# zone), then restart the Deployment:
 kubectl -n kube-system rollout restart deployment/coredns
 kubectl -n kube-system rollout status deployment/coredns
 kubectl run dns-check --image=busybox:1.36 --restart=Never --rm -it -- \

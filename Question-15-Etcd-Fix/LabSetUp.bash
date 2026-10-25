@@ -30,11 +30,15 @@ echo
 fail_setup() {
   echo
   echo "Setup failed: $*" >&2
-  echo "Restoring the pristine control-plane baseline..." >&2
-  if q15_restore_baseline; then
-    echo "Baseline restored successfully." >&2
+  if [[ -s "$Q15_BASELINE_READY" ]]; then
+    echo "Restoring the pristine control-plane baseline..." >&2
+    if q15_restore_baseline; then
+      echo "Baseline restored successfully." >&2
+    else
+      echo "WARNING: baseline restoration failed. Re-run $0 or repair the control plane manually." >&2
+    fi
   else
-    echo "WARNING: baseline restoration failed. Re-run $0 or repair the control plane manually." >&2
+    echo "No pristine baseline is available; no automatic repair was attempted." >&2
   fi
   exit 1
 }
@@ -58,29 +62,34 @@ if [[ -n "$CONTROLLER_CPU_FAULT" || -n "$CONTROLLER_MEMORY_FAULT" ]]; then
     fail_setup "could not apply the controller-manager resource fault"
 fi
 
-# Apply the API-server fault last. Once kubelet reloads the manifest, kubectl
-# is unavailable and only node-level diagnostics remain.
-if [[ -n "$ETCD_FAULT" ]]; then
-  q15_set_etcd_servers "$ETCD_FAULT_VALUE" ||
-    fail_setup "could not apply the etcd endpoint fault"
+echo "Waiting for the selected failure symptom(s)..."
+if [[ -n "$COREDNS_FAULT" ]]; then
+  echo "  - cluster DNS resolution failing"
+  q15_wait_dns_broken ||
+    fail_setup "cluster DNS did not stop resolving"
 fi
 
-echo "Waiting for the expected failure symptom..."
+if [[ -n "$SCHEDULER_CPU_FAULT" ]]; then
+  echo "  - kube-scheduler container not running"
+  q15_wait_component_not_running kube-scheduler ||
+    fail_setup "kube-scheduler did not become unschedulable"
+  q15_wait_component_status_not_running kube-scheduler 60 || true
+fi
+
+if [[ -n "$CONTROLLER_CPU_FAULT" || -n "$CONTROLLER_MEMORY_FAULT" ]]; then
+  echo "  - kube-controller-manager container not running"
+  q15_wait_component_not_running kube-controller-manager ||
+    fail_setup "kube-controller-manager did not become unstable"
+  q15_wait_component_status_not_running kube-controller-manager 60 || true
+fi
+
+# The API-server fault is applied last: once kubelet reloads the manifest,
+# kubectl is unavailable and only node-level diagnostics remain.
 if [[ -n "$ETCD_FAULT" ]]; then
+  echo "  - kube-apiserver cannot reach etcd (API becomes unavailable)"
+  q15_set_etcd_servers "$ETCD_FAULT_VALUE" ||
+    fail_setup "could not apply the etcd endpoint fault"
   q15_wait_api_down || fail_setup "the API server did not go down as expected"
-else
-  if [[ -n "$SCHEDULER_CPU_FAULT" ]]; then
-    q15_wait_component_not_running kube-scheduler ||
-      fail_setup "kube-scheduler did not become unschedulable"
-  fi
-  if [[ -n "$CONTROLLER_CPU_FAULT" || -n "$CONTROLLER_MEMORY_FAULT" ]]; then
-    q15_wait_component_not_running kube-controller-manager ||
-      fail_setup "kube-controller-manager did not become unstable"
-  fi
-  if [[ -n "$COREDNS_FAULT" ]]; then
-    q15_wait_coredns_not_ready ||
-      fail_setup "CoreDNS did not become unhealthy"
-  fi
 fi
 
 echo

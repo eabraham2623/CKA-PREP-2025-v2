@@ -13,10 +13,15 @@ source "$SCRIPT_DIR/q15-lib.bash"
 echo "Cleaning up Question 15: Etcd Fix..."
 
 if [[ ! -s "$Q15_BASELINE_READY" ]]; then
-  echo "No pristine Q15 baseline is recorded; nothing can be restored automatically." >&2
-  echo "If the control plane is broken, repair it manually or start a fresh disposable cluster." >&2
-  cka_variant_clear "$SCRIPT_DIR"
-  exit 1
+  echo "No pristine Q15 baseline is recorded; nothing can be restored automatically."
+  if [[ -f "$(cka_variant_state_file "$SCRIPT_DIR")" ]]; then
+    echo "WARNING: a variant is recorded but the baseline is missing. The cluster may be broken." >&2
+    echo "Repair the control plane manually or start a fresh disposable cluster." >&2
+    cka_variant_clear "$SCRIPT_DIR"
+    exit 1
+  fi
+  echo "[OK] Nothing to clean up."
+  exit 0
 fi
 
 if ! q15_restore_baseline; then

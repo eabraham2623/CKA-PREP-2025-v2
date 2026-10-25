@@ -84,11 +84,29 @@ q15_wait_component_not_running() {
   return 1
 }
 
-q15_wait_coredns_not_ready() {
+# Kubelet updates the static Pod mirror object with a short delay. After the
+# container has stopped, wait (best effort) for kubectl to show the same state
+# so the diagnostics printed by setup do not contradict the question.
+q15_wait_component_status_not_running() {
+  local component="$1"
+  local seconds="${2:-60}"
+  local elapsed=0 phase
+  while (( elapsed < seconds )); do
+    phase="$(q15_component_status "$component")"
+    if [[ -n "$phase" && "$phase" != "Running" ]]; then
+      return 0
+    fi
+    sleep 2
+    elapsed=$((elapsed + 2))
+  done
+  return 1
+}
+
+q15_wait_dns_broken() {
   local seconds="${1:-$Q15_WAIT_SECONDS}"
   local elapsed=0
   while (( elapsed < seconds )); do
-    if ! q15_coredns_ready; then
+    if ! q15_dns_resolves; then
       return 0
     fi
     sleep 2
@@ -289,13 +307,41 @@ q15_snapshot_baseline() {
   date -u '+%Y-%m-%dT%H:%M:%SZ' > "$Q15_BASELINE_READY"
 }
 
+# Atomically install a file into the kubelet-watched manifest directory.
+# Writing a static Pod manifest in place lets kubelet observe a truncated or
+# empty file, which produces a parse error and a long CrashLoopBackOff, so
+# always copy to a hidden sibling temp file and rename it over the target.
+# Kubelet ignores dot-prefixed files in the manifest directory.
+q15_atomic_install() {
+  local src="$1"
+  local dest="$2"
+  local tmp mode owner group
+  tmp="$(dirname "$dest")/.q15-tmp-$(basename "$dest").$$"
+  if sudo test -e "$dest"; then
+    read -r mode owner group < <(sudo stat -c '%a %u %g' "$dest")
+  fi
+  if ! sudo cp "$src" "$tmp"; then
+    sudo rm -f "$tmp"
+    return 1
+  fi
+  if [[ -n "${mode:-}" ]]; then
+    sudo chmod "$mode" "$tmp"
+    sudo chown "$owner:$group" "$tmp"
+  fi
+  if ! sudo mv -f "$tmp" "$dest"; then
+    sudo rm -f "$tmp"
+    return 1
+  fi
+}
+
 q15_restore_baseline() {
   [[ -s "$Q15_BASELINE_READY" ]] || return 1
 
-  sudo cp "$Q15_BASELINE_APISERVER" "$Q15_APISERVER_MANIFEST" || return 1
-  sudo cp "$Q15_BASELINE_SCHEDULER" "$Q15_SCHEDULER_MANIFEST" || return 1
-  sudo cp "$Q15_BASELINE_CONTROLLER" "$Q15_CONTROLLER_MANIFEST" || return 1
+  q15_atomic_install "$Q15_BASELINE_APISERVER" "$Q15_APISERVER_MANIFEST" || return 1
+  q15_atomic_install "$Q15_BASELINE_SCHEDULER" "$Q15_SCHEDULER_MANIFEST" || return 1
+  q15_atomic_install "$Q15_BASELINE_CONTROLLER" "$Q15_CONTROLLER_MANIFEST" || return 1
 
+  echo "Waiting for the API server to restart..."
   if ! q15_wait_api_ready "$Q15_WAIT_SECONDS"; then
     return 1
   fi
@@ -307,6 +353,7 @@ q15_restore_baseline() {
     return 1
   fi
 
+  echo "Waiting for CoreDNS and cluster DNS to recover..."
   kubectl -n kube-system rollout restart deployment/coredns >/dev/null 2>&1 || true
   kubectl -n kube-system rollout status deployment/coredns \
     --timeout="${Q15_WAIT_SECONDS}s" >/dev/null 2>&1 || true
@@ -328,6 +375,7 @@ q15_wait_cluster_healthy() {
 
 q15_ensure_baseline() {
   if [[ -s "$Q15_BASELINE_READY" ]]; then
+    echo "Restoring the pristine baseline saved by the previous run..."
     q15_restore_baseline
     return
   fi
@@ -350,7 +398,25 @@ q15_ensure_baseline() {
 
 q15_set_etcd_servers() {
   local value="$1"
-  sudo sed -i -E "s#^([[:space:]]*- --etcd-servers=).*#\1${value}#" "$Q15_APISERVER_MANIFEST" || return 1
+  local tmpdir tmp
+  tmpdir="$(mktemp -d)"
+  tmp="$tmpdir/kube-apiserver.yaml"
+  # Edit outside the watched directory, then install atomically. GNU sed -i
+  # would create a visible temp file that kubelet tries to parse as a Pod.
+  if ! sudo sed -E "s#^([[:space:]]*- --etcd-servers=).*#\1${value}#" \
+      "$Q15_APISERVER_MANIFEST" > "$tmp"; then
+    rm -rf "$tmpdir"
+    return 1
+  fi
+  if ! grep -Fq -- "--etcd-servers=${value}" "$tmp"; then
+    rm -rf "$tmpdir"
+    return 1
+  fi
+  if ! q15_atomic_install "$tmp" "$Q15_APISERVER_MANIFEST"; then
+    rm -rf "$tmpdir"
+    return 1
+  fi
+  rm -rf "$tmpdir"
   grep -Fq -- "--etcd-servers=${value}" "$Q15_APISERVER_MANIFEST"
 }
 
@@ -360,8 +426,10 @@ q15_set_container_resources() {
   local memory_limit="${3:-}"
 
   sudo python3 - "$file" "$cpu" "$memory_limit" <<'PY'
+import os
 import re
 import sys
+import tempfile
 
 path, cpu, memory_limit = sys.argv[1], sys.argv[2], sys.argv[3]
 with open(path) as handle:
@@ -437,8 +505,29 @@ if memory_limit:
             )
 
 lines[resources_index:end] = block
-with open(path, 'w') as handle:
-    handle.write('\n'.join(lines) + '\n')
+
+# kubelet watches this directory: never truncate the manifest in place.
+st = os.stat(path)
+fd, tmp = tempfile.mkstemp(
+    prefix='.q15-tmp-', dir=os.path.dirname(os.path.abspath(path))
+)
+try:
+    with os.fdopen(fd, 'w') as handle:
+        handle.write('\n'.join(lines) + '\n')
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.chmod(tmp, st.st_mode)
+    try:
+        os.chown(tmp, st.st_uid, st.st_gid)
+    except PermissionError:
+        pass
+    os.replace(tmp, path)
+except BaseException:
+    try:
+        os.unlink(tmp)
+    except FileNotFoundError:
+        pass
+    raise
 PY
 }
 
@@ -469,13 +558,33 @@ q15_apply_coredns_fault() {
 }
 
 q15_print_status() {
-  echo "Control-plane containers:"
-  sudo crictl ps -a 2>/dev/null |
-    grep -E 'kube-apiserver|kube-scheduler|kube-controller-manager|etcd' || true
+  local comp line mismatch=0 phase
+  echo "Control-plane containers (latest container per component):"
+  for comp in etcd kube-apiserver kube-scheduler kube-controller-manager; do
+    line="$(sudo crictl ps -a --name "^${comp}$" --latest 2>/dev/null | tail -n +2)"
+    if [[ -n "$line" ]]; then
+      echo "$line"
+    else
+      echo "(no container found for $comp)"
+    fi
+  done
   echo
   if q15_api_ready; then
     echo "kube-system Pods:"
     kubectl -n kube-system get pods -o wide 2>/dev/null || true
+    for comp in kube-scheduler kube-controller-manager; do
+      if ! q15_container_running "$comp"; then
+        phase="$(q15_component_status "$comp")"
+        if [[ "$phase" == "Running" ]]; then
+          mismatch=1
+        fi
+      fi
+    done
+    if (( mismatch )); then
+      echo
+      echo "Note: static Pod mirror status can lag behind the container runtime."
+      echo "The crictl list above is authoritative."
+    fi
   else
     echo "The API server is unavailable, so kubectl status is not shown."
   fi

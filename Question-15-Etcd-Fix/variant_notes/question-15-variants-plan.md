@@ -1,6 +1,6 @@
 # Question 15 — Proposed Variants from the Deep-Research Notes
 
-Status: **partially implemented and tested — see the implementation handoff in section 12**
+Status: **implemented and verified — see the implementation handoff in section 12**
 
 Source reviewed: `Question-15-Etcd-Fix/variant_notes/deep-research-report.md`
 
@@ -122,11 +122,11 @@ Variant map:
 | 2 | stale external IP | none | none | none |
 | 3 | none | `1999m` | none | none |
 | 4 | none | none | `4` CPU | none |
-| 5 | peer port | `1999m` | `19Mi` memory limit | malformed Corefile |
+| 5 | peer port | `1999m` | `4` CPU + `19Mi` memory limit | wrong cluster zone |
 
 ### Baseline snapshot and reset
 
-The current `LabSetUp.bash` copies the broken manifest to `/root/kube-apiserver.yaml.bak`; rerunning setup would overwrite the only good backup with an already-broken file. Variants need a **pristine baseline**:
+The original single-variant `LabSetUp.bash` copied the broken manifest to `/root/kube-apiserver.yaml.bak`; rerunning setup would overwrite the only good backup with an already-broken file. Variants need a **pristine baseline**:
 
 ```
 .cka-state/q15-baseline/
@@ -155,16 +155,16 @@ The same restore function should be shared by setup and cleanup to avoid drift.
 
 ### Applying faults
 
-- **Etcd peer port / stale endpoint:** edit the single `- --etcd-servers=` line in `kube-apiserver.yaml`. Prefer an anchored `sed` or a small Python YAML edit over a global `:2379` replacement.
-- **Scheduler CPU / controller CPU-memory:** use Python with the `yaml` module if available (it is present in the current environment), with a `sed`/`awk` fallback for the fixed `resources.requests.cpu` shape. Do not depend on `kubectl edit` for static Pods.
-- **CoreDNS:** replace the `Corefile` key with a malformed but recoverable version (for example, remove the closing brace of the `.:53` block or add an invalid plugin line). Then restart the CoreDNS Deployment so the bad config is loaded.
-- **Combined variant:** apply scheduler/controller/CoreDNS faults first, then the API-server fault.
+- **Etcd peer port / stale endpoint:** edit the single `- --etcd-servers=` line in `kube-apiserver.yaml` with an anchored `sed` expression (GNU `sed -i` writes a temp file and renames it, so kubelet never sees a partial manifest).
+- **Scheduler CPU / controller CPU-memory:** a small Python text edit that finds the indented `resources.requests.cpu` and `resources.limits.memory` keys. It writes a sibling temp file in `/etc/kubernetes/manifests`, preserves mode/ownership, and atomically replaces the manifest with `os.replace`. Do not depend on `kubectl edit` for static Pods, and never truncate the watched manifest in place.
+- **CoreDNS:** rewrite the `Corefile` key so the `kubernetes` plugin serves the wrong zone (`kubernetes wrong.local` instead of `kubernetes cluster.local`), then restart the CoreDNS Deployment so the bad config is loaded. CoreDNS Pods stay Running, but `kubernetes.default.svc.cluster.local` stops resolving. This is the implemented training substitute for the unverified exam ConfigMap fault. A malformed Corefile was tried first, but CoreDNS's `reload` plugin tolerated it and kept serving the old config.
+- **Combined variant:** apply CoreDNS, scheduler, and controller faults first; wait for those symptoms while the API is still up; then apply the API-server fault last.
 
 ### Waiting for symptoms
 
-- Etcd variants: wait until `/readyz` fails and the API server container is not Running; print `crictl ps -a | grep kube-apiserver` and the last log lines.
-- Scheduler/controller variants: wait until the static Pod is Pending or CrashLoopBackOff; print `kubectl -n kube-system get pods` and `kubectl describe pod`.
-- CoreDNS: wait until CoreDNS Pods are not Ready; print `kubectl -n kube-system logs` for one CoreDNS Pod.
+- Etcd variants: wait until `/readyz` fails. With the bad endpoint the API server container can stay `Running` but never become ready, so do not require the container to exit. Print the latest `crictl` container state and the last log lines.
+- Scheduler/controller variants: wait until the static Pod is not running (for example `Pending`, `UnexpectedAdmissionError`, or `CrashLoopBackOff`); print `kubectl -n kube-system get pods` and `kubectl describe pod`.
+- CoreDNS: wait until cluster DNS stops resolving `kubernetes.default.svc.cluster.local`; the CoreDNS Pods themselves stay Running with the wrong-zone fault.
 - Use bounded retries. Never leave setup hanging indefinitely.
 
 ## 6. Validation plan
@@ -180,7 +180,7 @@ Every variant should run the same broad check set, with variant-specific expecta
 5. **Controller-manager:** static Pod Running; CPU request is at or below the threshold; memory limit is absent or at least `128Mi` in Variant 5.
 6. **CoreDNS:** ConfigMap `Corefile` is valid and contains the expected `kubernetes`, `forward`, and `cache` directives; CoreDNS Pods are Ready.
 7. **All control-plane Pods:** etcd, kube-apiserver, kube-scheduler, kube-controller-manager are Running.
-8. **DNS (Variant 5 and optionally all variants):** a temporary Pod resolves `kubernetes.default.svc.cluster.local`; delete the Pod afterward.
+8. **DNS (Variant 5 and all other variants):** `kubernetes.default.svc.cluster.local` resolves through the kube-dns ClusterIP (`dig`/`nslookup` from the host, with a short-lived in-cluster Pod as a last-resort fallback).
 9. **Nodes:** all nodes Ready.
 
 For V1/V2, the secondary components are expected to match the baseline; they should still be checked so a learner cannot “fix” etcd by breaking something else. For V3/V4, the etcd endpoint must remain correct.
@@ -238,13 +238,13 @@ Also test:
 - `bash -n` on every touched script
 - cleanup restores a healthy cluster after each variant
 
-## 10. Open decisions before implementation
+## 10. Decisions taken during implementation
 
-1. **Difficulty shape:** keep the progression above (recommended for exam realism), or normalize all five to equal-difficulty combined incidents.
-2. **Variant 4 fault:** use controller CPU `4` (S2) as proposed, or controller memory `19Mi` (S1). The other one is covered in Variant 5.
-3. **CoreDNS evidence:** keep the malformed-Corefile fault in Variant 5 as a training substitute, or omit it and make Variant 5 a pure etcd + scheduler + controller incident.
-4. **Question disclosure:** keep the original Q15 style that reveals the peer-port root cause, or use the symptom-only wording proposed here.
-5. **Cleanup behavior:** restore the cluster on cleanup (recommended) or only clear variant state and leave repair to the learner.
+1. **Difficulty shape:** the five-preset progression is kept. Variants 1-4 are single-fault drills; Variant 5 is the combined capstone. This is recorded as an explicit exception to the equal-difficulty and 2-4 preset guidance in `AGENTS.md`.
+2. **Variant 4 fault:** controller CPU `4` (from S2). The controller memory `19Mi` fault is covered by Variant 5, where it is paired with CPU `4` so the failure is immediate and deterministic instead of depending on when the controller happens to OOM.
+3. **CoreDNS evidence:** the malformed-Corefile idea was replaced by the `wrong.local` cluster-zone fault after testing showed CoreDNS's `reload` plugin tolerated the malformed file. Learner-facing text says this is a training substitute, not the exact exam fault.
+4. **Question disclosure:** symptom-only wording is used. The questions describe the incident and success criteria but do not reveal the bad value or file line.
+5. **Cleanup behavior:** cleanup restores the pristine baseline, waits for control-plane and DNS health, removes the baseline, and clears variant state.
 
 ## 11. Recommendation
 
@@ -252,7 +252,7 @@ Implement the five-variant progression as described, keep Variant 5 as the capst
 
 ## 12. Implementation handoff (2026-10-25)
 
-Status: **implemented, but not fully re-verified from a clean state. Continue with the atomic-write fix and the remaining test matrix before declaring it done.**
+Status: **implemented and verified on a disposable cluster. All five presets pass the full matrix, the learner-style journey, and the contract checks.**
 
 ### 12.1 Files added or changed
 
@@ -260,16 +260,16 @@ Status: **implemented, but not fully re-verified from a clean state. Continue wi
 |---|---|
 | `Question-15-Etcd-Fix/q15-lib.bash` | New. Shared baseline, health, manifest-edit, CoreDNS, and status helpers. |
 | `Question-15-Etcd-Fix/variants.bash` | New. Five presets, summaries, and full question text. |
-| `Question-15-Etcd-Fix/LabSetUp.bash` | Rewritten. Baseline restore/snapshot, fault injection, symptom wait, question output. |
+| `Question-15-Etcd-Fix/LabSetUp.bash` | Rewritten. Baseline restore/snapshot, fault injection, symptom wait, progress output, question output. |
 | `Question-15-Etcd-Fix/validate.bash` | Rewritten. Variant-aware validation; fails closed without recorded state. |
 | `Question-15-Etcd-Fix/cleanup.bash` | Rewritten. Restores baseline, waits for health, removes baseline and variant state. |
 | `Question-15-Etcd-Fix/Questions.bash` | Rewritten as generic variant-aware study text. |
 | `Question-15-Etcd-Fix/SolutionNotes.bash` | Rewritten as a generic control-plane troubleshooting runbook. |
-| `README.md` | **Not yet updated** (Q15 still says no variants). |
-| `AGENTS.md` | **Not yet updated** (line 49 still describes Q15 cleanup as a no-op). |
-| This plan file | Updated with implementation/test status. |
+| `README.md` | Updated: Q15 row says five variants; the note explains the progression, baseline restore, and CoreDNS training substitute. |
+| `AGENTS.md` | Updated: Q15 hazard entry describes all presets and cleanup; the five-preset/unequal-difficulty exception is recorded. |
+| This plan file | Updated with implementation, decisions, and final verification results. |
 
-The plan file is tracked at `HEAD`. The code changes are **uncommitted**. `q15-lib.bash` and `variants.bash` are still untracked. No `git commit` or `git push` was run.
+The code and documentation changes are **uncommitted**. No `git commit` or `git push` was run.
 
 ### 12.2 Implemented variant behavior
 
@@ -279,7 +279,7 @@ The plan file is tracked at `HEAD`. The code changes are **uncommitted**. `q15-l
 | 2 | `--etcd-servers=https://192.0.2.100:2379` |
 | 3 | Scheduler `requests.cpu: 1999m` |
 | 4 | Controller-manager `requests.cpu: 4` |
-| 5 | Etcd peer port + scheduler `1999m` + controller `limits.memory: 19Mi` + CoreDNS `kubernetes wrong.local` |
+| 5 | Etcd peer port + scheduler `1999m` + controller CPU `4` and `limits.memory: 19Mi` + CoreDNS `kubernetes wrong.local` |
 
 ### 12.3 Deliberate divergences from the original proposal
 
@@ -295,6 +295,16 @@ The plan file is tracked at `HEAD`. The code changes are **uncommitted**. `q15-l
 3. **Baseline restoration waits for the CoreDNS rollout.**
    - `kubectl rollout restart deployment/coredns` returns before the old pods are replaced. Cleanup could finish while CoreDNS was still rolling, and an immediate setup could see a temporarily unhealthy cluster.
    - `q15_restore_baseline` now runs `kubectl rollout status deployment/coredns --timeout=...` before `q15_wait_cluster_healthy`.
+
+4. **Variant 5 controller fault made deterministic.**
+   - `limits.memory: 19Mi` alone let the controller run for tens of seconds between OOM kills, so the fault was visible only intermittently.
+   - Variant 5 now also sets `requests.cpu: 4`, the same value used by Variant 4. The controller is immediately unschedulable (`UnexpectedAdmissionError`), and the 19Mi limit is a second fault the learner must also fix.
+
+5. **Setup diagnostics match reality.**
+   - Kubelet's static Pod mirror object lags behind the container runtime; setup could print `Running` for a component whose container had already stopped.
+   - `q15_wait_component_status_not_running` waits up to 60s (best effort) for kubectl to agree, and `q15_print_status` adds an explicit note if a mismatch remains.
+   - Status output now shows only the latest container per control-plane component, instead of weeks-old exited containers.
+   - Setup prints one progress line per fault it is waiting for, plus messages when a previous baseline is being restored.
 
 ### 12.4 Test results so far
 
@@ -326,26 +336,24 @@ Useful logs and harness:
 - Logs: `/tmp/opencode/q15-matrix/`
 - Last verified cluster state at handoff: both nodes `Ready`, all control-plane containers Running, no `.cka-state`, no pristine baseline. The cluster is healthy.
 
-### 12.5 Known bug to fix first: non-atomic manifest writes
+### 12.5 Fixed: non-atomic manifest writes (2026-10-25)
 
-`q15_set_container_resources` uses Python `open(path, 'w')`, which truncates the static Pod manifest before writing. Kubelet can observe the empty/partial file. This happened during the interrupted run:
+The original `q15_set_container_resources` used Python `open(path, 'w')`, which truncated the static Pod manifest before writing. Kubelet could observe the empty/partial file:
 
 ```text
 can't process config file "/etc/kubernetes/manifests/kube-scheduler.yaml":
 couldn't parse as pod(Object 'Kind' is missing in 'null')
 ```
 
-The result was a kubelet parse error and a 5-minute `CrashLoopBackOff` before the scheduler restarted. It eventually recovered, but the edit is not safe.
+The result was a kubelet parse error and a 5-minute `CrashLoopBackOff` before the scheduler restarted. The etcd edit used `sed -i`, which is a rename on GNU sed, but kubelet's journal showed it still parsed sed's visible `sedXXXXXX` temp file (`can't process config file "/etc/kubernetes/manifests/sedUQXOXK"`), so it needed the same treatment.
 
-Fix:
+Implemented fix:
 
-1. In `q15_set_container_resources`, write the new YAML to a temporary file in `/etc/kubernetes/manifests` (same filesystem).
-2. Preserve ownership/mode.
-3. Atomically replace the target with `os.replace(temp, path)` (Python) or `sudo mv temp target`.
-4. Do the same audit for any other direct writes to static manifests.
-5. Re-test all five variants after the fix.
-
-`q15_set_etcd_servers` uses `sed -i`, which uses a temporary file and rename on GNU sed, so it did not show this failure. It should still be included in the atomic-write review.
+1. `q15_set_container_resources` writes a hidden `.q15-tmp-*` file in `/etc/kubernetes/manifests`, copies the destination's mode/owner, `fsync`s, and calls `os.replace`.
+2. `q15_set_etcd_servers` edits the manifest in a private `mktemp -d` directory, then installs it through the same atomic path.
+3. `q15_atomic_install` is the shared bash helper for baseline restore and the etcd edit: hidden temp copy, destination mode/owner preserved, `mv -f` over the target.
+4. Hidden temp names are ignored by kubelet, so a transient write never appears as a static Pod.
+5. All five variants were re-tested on the final code (see 12.6).
 
 ### 12.6 Remaining test work
 

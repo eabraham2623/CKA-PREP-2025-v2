@@ -52,11 +52,13 @@ variant_config() {
       ETCD_FAULT="peer-port"
       ETCD_FAULT_VALUE="$ETCD_PEER_ENDPOINT"
       SCHEDULER_CPU_FAULT="$SCHEDULER_BAD_CPU"
+      CONTROLLER_CPU_FAULT="$CONTROLLER_BAD_CPU"
       CONTROLLER_MEMORY_FAULT="$CONTROLLER_BAD_MEMORY"
-      COREDNS_FAULT="malformed-corefile"
+      COREDNS_FAULT="wrong-zone"
       faults+=(
         "etcd endpoint $ETCD_PEER_ENDPOINT"
         "kube-scheduler CPU request $SCHEDULER_BAD_CPU"
+        "kube-controller-manager CPU request $CONTROLLER_BAD_CPU"
         "kube-controller-manager memory limit $CONTROLLER_BAD_MEMORY"
         "invalid CoreDNS cluster zone"
       )
@@ -89,7 +91,7 @@ EOF
     1)
       cat <<'EOF'
 The control plane is down after a migration from external HA etcd to
-local etcd. The kube-apiserver is not starting.
+local etcd. The API server is unavailable.
 
 Inspect the control-plane static Pods and their manifests, identify why
 the API server cannot reach etcd, and repair it.
