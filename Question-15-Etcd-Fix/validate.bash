@@ -15,6 +15,17 @@ source "$SCRIPT_DIR/variants.bash"
 VARIANT="$(cka_variant_read "$SCRIPT_DIR" "$VARIANT_COUNT")" || exit 1
 variant_config "$VARIANT" || exit 1
 
+BASELINE_VARIANT="$(q15_baseline_variant)" || {
+  echo "Error: no completed Q15 setup baseline was found for this run." >&2
+  echo "Re-run setup before validating: scripts/run-question.sh 15 ${VARIANT}" >&2
+  exit 1
+}
+if [[ "$BASELINE_VARIANT" != "$VARIANT" ]]; then
+  echo "Error: recorded variant $VARIANT does not match the setup marker $BASELINE_VARIANT." >&2
+  echo "The variant state was changed after setup; re-run setup before validating." >&2
+  exit 1
+fi
+
 PASS=0
 FAIL=0
 TOTAL=0

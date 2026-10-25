@@ -20,6 +20,13 @@ source "$SCRIPT_DIR/variants.bash"
 VARIANT="$(cka_variant_select "$SCRIPT_DIR" "$VARIANT_COUNT" "${1:-}")" || exit 1
 variant_config "$VARIANT" || exit 1
 
+# Remove any marker from a previous run before touching the cluster. If setup
+# fails from here on, validation must fail instead of accepting a stale marker.
+rm -f "$Q15_BASELINE_VARIANT" || {
+  echo "Error: could not clear the previous Q15 setup marker in $Q15_BASELINE_DIR" >&2
+  exit 1
+}
+
 echo "============================================================"
 echo " Question 15: Etcd Fix"
 echo " Variant $VARIANT/$VARIANT_COUNT selected for this run"
@@ -91,6 +98,10 @@ if [[ -n "$ETCD_FAULT" ]]; then
     fail_setup "could not apply the etcd endpoint fault"
   q15_wait_api_down || fail_setup "the API server did not go down as expected"
 fi
+
+# Record setup success only after every fault and symptom wait has completed.
+q15_record_variant "$VARIANT" ||
+  fail_setup "could not record the selected variant"
 
 echo
 q15_print_status

@@ -19,6 +19,7 @@ Q15_BASELINE_APISERVER="$Q15_BASELINE_DIR/kube-apiserver.yaml"
 Q15_BASELINE_SCHEDULER="$Q15_BASELINE_DIR/kube-scheduler.yaml"
 Q15_BASELINE_CONTROLLER="$Q15_BASELINE_DIR/kube-controller-manager.yaml"
 Q15_BASELINE_COREFILE="$Q15_BASELINE_DIR/Corefile"
+Q15_BASELINE_VARIANT="$Q15_BASELINE_DIR/VARIANT"
 
 # How long to wait for the API server and the rest of the control plane.
 Q15_WAIT_SECONDS="${Q15_WAIT_SECONDS:-180}"
@@ -305,6 +306,26 @@ q15_snapshot_baseline() {
   [[ -s "$Q15_BASELINE_COREFILE" ]] || return 1
 
   date -u '+%Y-%m-%dT%H:%M:%SZ' > "$Q15_BASELINE_READY"
+}
+
+# Record the selected variant in the baseline directory. Validation requires
+# this marker to match .cka-state/<question>.variant, so a hand-written state
+# file or a state file changed to another valid preset fails closed.
+q15_record_variant() {
+  local variant="${1:-}"
+  [[ "$variant" =~ ^[0-9]+$ ]] || return 1
+  mkdir -p "$Q15_BASELINE_DIR" || return 1
+  printf '%s\n' "$variant" > "$Q15_BASELINE_VARIANT" || return 1
+  [[ "$(<"$Q15_BASELINE_VARIANT")" == "$variant" ]]
+}
+
+q15_baseline_variant() {
+  local value
+  [[ -s "$Q15_BASELINE_READY" ]] || return 1
+  [[ -s "$Q15_BASELINE_VARIANT" ]] || return 1
+  value="$(<"$Q15_BASELINE_VARIANT")"
+  [[ "$value" =~ ^[0-9]+$ ]] || return 1
+  printf '%s\n' "$value"
 }
 
 # Atomically install a file into the kubelet-watched manifest directory.
