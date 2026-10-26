@@ -1,5 +1,8 @@
 # Question 15 - control-plane troubleshooting runbook
 #
+# Full per-variant walkthrough:
+# Question-15-Etcd-Fix/TROUBLESHOOTING.md
+#
 # The setup prints the exact variant. These notes cover every fault pattern
 # used by the lab; do not assume the current run uses only the first one.
 

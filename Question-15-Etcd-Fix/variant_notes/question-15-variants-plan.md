@@ -264,8 +264,9 @@ Status: **implemented and verified on a disposable cluster. All five presets pas
 | `Question-15-Etcd-Fix/validate.bash` | Rewritten. Variant-aware validation; fails closed without recorded state. |
 | `Question-15-Etcd-Fix/cleanup.bash` | Rewritten. Restores baseline, waits for health, removes baseline and variant state. |
 | `Question-15-Etcd-Fix/Questions.bash` | Rewritten as generic variant-aware study text. |
-| `Question-15-Etcd-Fix/SolutionNotes.bash` | Rewritten as a generic control-plane troubleshooting runbook. |
-| `README.md` | Updated: Q15 row says five variants; the note explains the progression, baseline restore, and CoreDNS training substitute. |
+| `Question-15-Etcd-Fix/SolutionNotes.bash` | Rewritten as a generic control-plane troubleshooting runbook; links to the per-variant walkthrough. |
+| `Question-15-Etcd-Fix/TROUBLESHOOTING.md` | New. Learner-facing, spoiler-heavy diagnosis and repair walkthrough for every variant. |
+| `README.md` | Updated: Q15 row says five variants; the note explains the progression, baseline restore, and CoreDNS training substitute, and links to the walkthrough. |
 | `AGENTS.md` | Updated: Q15 hazard entry describes all presets and cleanup; the five-preset/unequal-difficulty exception is recorded. |
 | This plan file | Updated with implementation, decisions, and final verification results. |
 
@@ -355,31 +356,90 @@ Implemented fix:
 4. Hidden temp names are ignored by kubelet, so a transient write never appears as a static Pod.
 5. All five variants were re-tested on the final code (see 12.6).
 
-### 12.6 Remaining test work
+### 12.6 End-to-end verification (completed 2026-10-25)
 
-The following were **not** completed after the latest changes:
+The full clean matrix was run on the final atomic-write code:
+`cleanup → setup → validate-before → solve → validate-after → cleanup` for
+every variant. All five variants passed.
 
-- Full clean matrix after the atomic-write fix: cleanup → setup → fail-before → solve → pass → cleanup for all five variants.
-- Re-run setup for the same variant and for a different variant without cleanup, to prove baseline restore and fault isolation.
-- No-argument setup records a valid random variant.
-- Invalid variant arguments `0`, `6`, and non-numeric fail.
-- Validation without recorded state fails.
-- Tampered recorded state for another variant fails.
-- `bash -n` on all touched scripts after the final edits.
-- Confirm cleanup leaves both nodes Ready, all control-plane containers Running, CoreDNS available, and cluster DNS resolving.
-- Verify `scripts/validate-question.sh all` still behaves correctly with Q15 included (the wrapper loops 1..17, so Q15 is in scope).
+| Variant | Setup symptom | Validate before | Validate after | Cleanup |
+|---|---|---|---|---|
+| 1 — etcd peer port | API down, `2380` in the manifest | fail (7/14) | pass 14/14 | pass |
+| 2 — stale external etcd | API down, `192.0.2.100` in the manifest | fail (8/14) | pass 14/14 | pass |
+| 3 — scheduler CPU | scheduler container not Running, `1999m` | fail (11/14) | pass 14/14 | pass |
+| 4 — controller CPU | controller-manager container not Running, `4` | fail (11/14) | pass 14/14 | pass |
+| 5 — combined incident | API down plus scheduler, controller CPU/memory, and CoreDNS zone faults | fail (1/14) | pass 14/14 | pass |
 
-### 12.7 Remaining documentation work
+Contract and robustness checks also passed:
 
-- `README.md`: change the Q15 row to `Etcd Fix (5 variants)` and document `scripts/run-question.sh 15 [variant]`.
-- `AGENTS.md`: update the Q15 hazard/cleanup entry. It currently says cleanup intentionally makes no change; the implemented cleanup restores the baseline and clears state.
-- Record the intentional departure from the repository's equal-difficulty and 2–4-preset guidance.
-- Update sections 5 and 10 of this plan so they describe the implemented `wrong.local` CoreDNS fault rather than the original malformed-Corefile idea.
+- Validation without recorded state fails with the "run setup first" error.
+- Invalid variants `0`, `6`, and `abc`, and a two-argument setup call, fail
+  without creating state or touching the cluster.
+- Re-running setup for the same variant without cleanup restores the pristine
+  baseline and re-applies the fault.
+- Switching from variant 3 to variant 4 without cleanup restores the baseline;
+  the scheduler returns to `25m`, so the variant 3 fault does not leak.
+- Tampering with `.cka-state/Question-15-Etcd-Fix.variant` after setup is rejected with
+  the mismatch error.
+- No-argument setup selected variant 5 at random, recorded the same value, and
+  produced the expected symptom.
+- Direct `Question-15-Etcd-Fix/LabSetUp.bash 4` (bypassing the wrapper) applies
+  the fault and records variant 4; validation then fails as expected and
+  cleanup restores the cluster.
+- `bash -n` passes on all Q15 scripts, the wrapper scripts, and the variant helper.
+- `scripts/validate-question.sh all` includes Q15 and reports 14/14 for it. The
+  overall command exits 1 because the other, unset-up labs fail; that is expected.
+- Final state after cleanup: API `/readyz` OK, both nodes Ready, all four
+  control-plane containers Running, CoreDNS 2/2, cluster DNS resolves, and no
+  `.cka-state` directory remains.
 
-### 12.8 Open design questions for the next session
+Harness and logs from the run: `/tmp/opencode/q15-e2e.sh` and
+`/tmp/opencode/q15-e2e/`. These are test artifacts and are not part of the repo.
 
-1. **Variant 5 controller fault:** `19Mi` is close to the controller's live usage. It can run for a while and then OOM/restart; in one run it was Running, in another it was CrashLoopBackOff. If that intermittent behavior is undesirable, either add the controller CPU `4` fault to Variant 5 as well (making it visible immediately) or move the `19Mi` fault into Variant 4 and use CPU `4` in Variant 5.
-2. **Equal difficulty:** Variants 1–4 are single-fault drills; Variant 5 is a multi-fault capstone. This is a progression, not equal difficulty. Confirm that is acceptable before finalizing `AGENTS.md`.
-3. **CoreDNS evidence strength:** the `wrong.local` zone is a training substitute, not the exact exam fault. Keep that wording explicit in learner-facing text.
-4. **Question disclosure:** current questions describe symptoms and migration context but do not reveal the exact bad value. This is more exam-like than the original Q15 wording, but it is a change from the original lab.
+### 12.7 Documentation work (completed)
+
+- `README.md` lists Q15 as `Etcd Fix (5 variants)` and documents
+  `scripts/run-question.sh 15 [variant]`.
+- `AGENTS.md` documents the Q15 baseline snapshot/restore behavior, the
+  destructive nature of the lab, and the five-preset/unequal-difficulty
+  exception.
+- Sections 5 and 10 describe the implemented `wrong.local` CoreDNS fault,
+  not the original malformed-Corefile idea.
+- `TROUBLESHOOTING.md` gives a per-variant walkthrough using only
+  `kubectl`, `crictl`, `journalctl`, `ss`, DNS clients, and ordinary file
+  editing. It is linked from `SolutionNotes.bash` and `README.md`.
+
+### 12.8 Design questions (resolved)
+
+1. **Variant 5 controller fault:** the capstone now combines CPU `4` with the
+   `19Mi` memory limit, so the controller is immediately unschedulable and the
+   memory fault is still present to repair.
+2. **Equal difficulty:** the progression is intentional and recorded as an
+   explicit exception in `AGENTS.md`.
+3. **CoreDNS evidence strength:** the wrong-zone fault is documented as a
+   training substitute in the question notes and this plan.
+4. **Question disclosure:** questions describe the incident and success
+   criteria without revealing the exact bad value or manifest line.
+
+### 12.9 Learner walkthrough validation (2026-10-26)
+
+`TROUBLESHOOTING.md` was added and its commands were exercised directly on the
+disposable cluster, without using the setup helper functions:
+
+- Variant 5: API-down triage, manual etcd manifest repair, scheduler and
+  controller CPU/memory repair, scripted CoreDNS Corefile repair, DNS check,
+  validation 14/14, cleanup.
+- Variant 3: scheduler diagnosis, safe manifest edit, smoke Deployment
+  scheduled, validation 14/14, cleanup.
+- Variant 2: stale external endpoint diagnosis, manual etcd repair,
+  validation 14/14, cleanup.
+- The Variant 1 API-down path and Variant 4 controller repair are the same
+  commands exercised by Variants 5 and 3 respectively.
+- The walkthrough notes that add-ons such as `cilium-operator` can restart or
+  briefly enter CrashLoopBackOff after a long API outage and normally recover
+  without intervention.
+- Final state: API `/readyz` OK, both nodes Ready, all `kube-system` Pods
+  Running, CoreDNS available, DNS resolving, no `.cka-state`, and no leftover
+  test Deployments.
+- `git diff --check` is clean and all Markdown fences are balanced.
 

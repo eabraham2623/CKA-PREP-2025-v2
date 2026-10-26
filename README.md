@@ -53,7 +53,7 @@ scripts/run-question.sh 1 2
 
 Validation reads the variant recorded by setup, so run setup before validating. Cleanup clears the recorded variant.
 
-Question 15 is a control-plane incident lab and an intentional exception to the equal-difficulty rule: its five presets form a progression from single-fault drills (etcd endpoint, scheduler and controller-manager resources) to a combined multi-fault capstone. The CoreDNS wrong-zone fault in the capstone is a training substitute, not a reported exam value. Setup snapshots a pristine control-plane baseline under `.cka-state/q15-baseline/`, and cleanup restores it. Run these presets only on a disposable cluster.
+Question 15 is a control-plane incident lab and an intentional exception to the equal-difficulty rule: its five presets form a progression from single-fault drills (etcd endpoint, scheduler and controller-manager resources) to a combined multi-fault capstone. The CoreDNS wrong-zone fault in the capstone is a training substitute, not a reported exam value. Setup snapshots a pristine control-plane baseline under `.cka-state/q15-baseline/`, and cleanup restores it. Run these presets only on a disposable cluster. For a spoiler-heavy, per-variant diagnosis and repair walkthrough, see [Question-15-Etcd-Fix/TROUBLESHOOTING.md](Question-15-Etcd-Fix/TROUBLESHOOTING.md).
 
 ---
 
