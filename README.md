@@ -55,6 +55,8 @@ Validation reads the variant recorded by setup, so run setup before validating. 
 
 Question 15 is a control-plane incident lab and an intentional exception to the equal-difficulty rule: its five presets form a progression from single-fault drills (etcd endpoint, scheduler and controller-manager resources) to a combined multi-fault capstone. The CoreDNS wrong-zone fault in the capstone is a training substitute, not a reported exam value. Setup snapshots a pristine control-plane baseline under `.cka-state/q15-baseline/`, and cleanup restores it. Run these presets only on a disposable cluster. For a spoiler-heavy, per-variant diagnosis and repair walkthrough, see [Question-15-Etcd-Fix/TROUBLESHOOTING.md](Question-15-Etcd-Fix/TROUBLESHOOTING.md).
 
+Question 17's three presets mirror reported exam variations: (1) restrict NGINX to TLS 1.3 only, (2) enable TLS 1.2 while retaining TLS 1.3, and (3) perform the TLS 1.3-only change with an immutable ConfigMap, which must be deleted and recreated. Variant 3 is an intentional immutability capstone and a recorded exception to the equal-difficulty rule.
+
 ---
 
 ## Validating Your Solutions
@@ -122,6 +124,6 @@ This opens VSCodium in the current directory, allowing you to browse and edit al
 | 14 | Storage Class (3 variants) | https://youtu.be/di7X7OHn2fc |
 | 15 | Etcd Fix (5 variants — control-plane faults) | https://youtu.be/IL448T6r8H4 |
 | 16 | NodePort Service | — |
-| 17 | TLS Config | — |
+| 17 | TLS Config (3 variants) | — |
 | 18 | kubectl patch — Resource Limits | — |
 | 19 | Resource Allocation v2 — Pod Scheduling | — |
