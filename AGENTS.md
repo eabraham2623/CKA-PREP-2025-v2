@@ -18,6 +18,7 @@ Run from the repo root:
 
 ## Question layout
 - Keep the five standard files: `LabSetUp.bash`, `Questions.bash`, `SolutionNotes.bash`, `validate.bash`, `cleanup.bash`. Variant-enabled questions also add `variants.bash`. `Questions.bash` and `SolutionNotes.bash` are study text; validation lives in `validate.bash`.
+- Questions 1–17 also have a supplementary `VERIFICATION.md` with manual, behavior-level checks. Keep it in sync when setup, variants, task values, or validation change; it must not contradict `validate.bash`.
 - Directory names must remain `Question-<number>-<topic>`; wrappers resolve numbers with `find ... -name "Question-$N-*"`. Add new questions to the README table.
 - `validate-question.sh` and `cleanup-question.sh` hard-code `for i in $(seq 1 17)` although 19 questions exist. `all` silently skips Q18/Q19; target them explicitly and update or de-hard-code the loops when touching them.
 - Validators define `check <description> <command...>`. Most end with `exit $FAIL` (failure count); Q1-Q7 and Q19 exit 0/1. The wrapper maps exit 0=pass, 2=skip, anything else=fail. Avoid returning 2 from a validator: exactly two failing checks would otherwise look like SKIP.

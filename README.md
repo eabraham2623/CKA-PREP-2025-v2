@@ -12,6 +12,7 @@ Straightforward CKA practice labs derived from the CKA-PREP playlist. Every ques
 - `validate.bash` — automatic validation checks to confirm your solution is correct.
 - `cleanup.bash` — clean up and remove resources created during the question.
 - `variants.bash` — variant-enabled questions only: fixed presets and the variant-specific question text.
+- `VERIFICATION.md` — Questions 1–17 only: human-readable checks that prove the solution works end to end, beyond the field-level validator.
 
 ---
 
@@ -32,7 +33,10 @@ Straightforward CKA practice labs derived from the CKA-PREP playlist. Every ques
    ```bash
    scripts/validate-question.sh 5
    ```
-6. Clean up resources when done:
+6. For a human-readable checklist of behavior-level checks and expected
+   observations, open the question's `VERIFICATION.md`. It is meant to be used
+   together with the validator, not instead of it.
+7. Clean up resources when done:
    ```bash
    scripts/cleanup-question.sh 5
    ```
