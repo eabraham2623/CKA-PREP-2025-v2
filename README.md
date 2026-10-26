@@ -123,7 +123,7 @@ This opens VSCodium in the current directory, allowing you to browse and edit al
 | 13 | Network Policy (3 variants) | https://youtu.be/rA8mXYTU0W8 |
 | 14 | Storage Class (3 variants) | https://youtu.be/di7X7OHn2fc |
 | 15 | Etcd Fix (5 variants — control-plane faults) | https://youtu.be/IL448T6r8H4 |
-| 16 | NodePort Service | — |
+| 16 | NodePort Service (3 variants) | — |
 | 17 | TLS Config (3 variants) | — |
 | 18 | kubectl patch — Resource Limits | — |
 | 19 | Resource Allocation v2 — Pod Scheduling | — |

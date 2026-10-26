@@ -1,28 +1,37 @@
-# Add container port to deployment
-kubectl patch deployment nodeport-deployment -n relative -p '{
+# Solution Notes for Question 16 - NodePort Service
+#
+# LabSetUp.bash prints the namespace, deployment, service, port name,
+# container port, service port, target port, and NodePort for this run.
+# Substitute the <..._FROM_SETUP> placeholders below.
+
+# 1. Add the named container port to the existing deployment.
+kubectl patch deployment <DEPLOYMENT_FROM_SETUP> -n <NAMESPACE_FROM_SETUP> -p '{
   "spec":{"template":{"spec":{"containers":[{
     "name":"nginx",
-    "ports":[{"name":"http","containerPort":80,"protocol":"TCP"}]
+    "ports":[{"name":"<PORT_NAME_FROM_SETUP>","containerPort":<CONTAINER_PORT_FROM_SETUP>,"protocol":"TCP"}]
   }]}}}}'
-kubectl get deploy nodeport-deployment -n relative -o wide
+kubectl get deploy <DEPLOYMENT_FROM_SETUP> -n <NAMESPACE_FROM_SETUP> -o wide
 
-# Create NodePort service on 30080
-cat <<'EOF' > svc.yaml
+# 2. Create the NodePort Service. Setup labels the pods with
+#    app=<deployment name>, so this selector matches them.
+kubectl apply -f - <<'EOF'
 apiVersion: v1
 kind: Service
 metadata:
-  name: nodeport-service
-  namespace: relative
+  name: <SERVICE_FROM_SETUP>
+  namespace: <NAMESPACE_FROM_SETUP>
 spec:
   type: NodePort
   selector:
-    app: nodeport-deployment
+    app: <DEPLOYMENT_FROM_SETUP>
   ports:
-  - port: 80
-    targetPort: 80
+  - port: <SERVICE_PORT_FROM_SETUP>
+    targetPort: <TARGET_PORT_FROM_SETUP>
     protocol: TCP
-    nodePort: 30080
+    nodePort: <NODEPORT_FROM_SETUP>
 EOF
-kubectl apply -f svc.yaml
-kubectl get svc nodeport-service -n relative -o wide
-# Test: curl http://<nodeIP>:30080
+kubectl get svc <SERVICE_FROM_SETUP> -n <NAMESPACE_FROM_SETUP> -o wide
+
+# 3. Verify the Service has endpoints and responds on the NodePort.
+kubectl get endpoints <SERVICE_FROM_SETUP> -n <NAMESPACE_FROM_SETUP>
+# curl http://<NODE_IP>:<NODEPORT_FROM_SETUP>

@@ -1,11 +1,34 @@
 #!/bin/bash
-# Cleanup script for Question 16 - NodePort
+# Cleanup script for Question 16 - NodePort Service
 set -uo pipefail
-echo "Cleaning up Question 16: NodePort..."
 
-kubectl delete service nodeport-service -n relative --ignore-not-found
-kubectl delete deployment nodeport-deployment -n relative --ignore-not-found
-kubectl delete namespace relative --ignore-not-found
-rm -f ~/svc.yaml
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+# shellcheck source=../scripts/lib/variant.sh
+source "$REPO_ROOT/scripts/lib/variant.sh"
+# shellcheck source=variants.bash
+source "$SCRIPT_DIR/variants.bash"
+
+echo "Cleaning up Question 16: NodePort Service..."
+
+# Clean every preset, not only the recorded one, so switching variants and
+# re-running cleanup is safe even if an earlier run left stale resources.
+for ((v = 1; v <= VARIANT_COUNT; v++)); do
+  variant_config "$v"
+  echo "  Removing variant $v resources (namespace '$NS')..."
+
+  kubectl delete service "$SVC" -n "$NS" --ignore-not-found >/dev/null 2>&1 || true
+  kubectl delete deployment "$DEPLOY" -n "$NS" --ignore-not-found \
+    --cascade=foreground --wait=true --timeout=90s >/dev/null 2>&1 || true
+
+  if kubectl get namespace "$NS" >/dev/null 2>&1; then
+    kubectl delete namespace "$NS" --ignore-not-found >/dev/null 2>&1 || true
+    kubectl wait --for=delete "namespace/$NS" --timeout=60s 2>/dev/null || true
+  fi
+done
+
+rm -f "$HOME/svc.yaml" svc.yaml
+cka_variant_clear "$SCRIPT_DIR"
 
 echo "[OK] Question 16 cleanup complete"
