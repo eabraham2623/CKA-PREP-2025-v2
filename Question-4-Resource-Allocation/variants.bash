@@ -31,12 +31,12 @@ variant_config() {
     2)
       DEPLOY="wordpress-staging"
       REPLICAS=2
-      OVERHEAD_PCT=25
+      OVERHEAD_PCT=20
       ;;
     3)
       DEPLOY="wordpress-dev"
       REPLICAS=4
-      OVERHEAD_PCT=30
+      OVERHEAD_PCT=20
       ;;
     *)
       echo "Error: unknown variant '$variant' (expected 1..$VARIANT_COUNT)" >&2
